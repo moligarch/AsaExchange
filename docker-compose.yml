@@ -1,0 +1,26 @@
+services:
+  # --- PostgreSQL Database ---
+  postgres:
+    image: postgres:16-alpine
+    container_name: asa_postgres
+    environment:
+      POSTGRES_USER: asa_user
+      POSTGRES_PASSWORD: asa_password
+      POSTGRES_DB: asa_db
+    ports:
+      - "5432:5432" # Expose Postgres to your host machine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # --- Redis Cache ---
+  redis:
+    image: redis:7-alpine
+    container_name: asa_redis
+    ports:
+      - "6379:6379" # Expose Redis to your host machine
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
