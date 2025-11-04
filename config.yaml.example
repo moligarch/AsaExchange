@@ -1,0 +1,29 @@
+# Single source of truth for the Go application
+app_env: "development"
+
+# --- Secrets ---
+encryption_key: "0012345678998765432100012345678998765432100012345678998765432100"
+
+# Database config for the Go app
+postgres:
+  user: "user"
+  password: "a_very_secure_password"
+  db: "appdb"
+  url: "postgres://user:a_very_secure_password@localhost:5432/appdb?sslmode=disable"
+
+# Bot configuration
+bot:
+  # Secrets
+  token: "your_customer_bot_token_here"
+  mod_token: "your_moderator_bot_token_here"
+  channel_id: 0
+  mode: "polling"
+  
+  # Webhook settings
+  webhook:
+    url: "https://your.domain.com"
+    listen_port: 8443
+    
+  # Polling settings
+  polling:
+    worker_pool_size: 10
