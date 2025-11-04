@@ -13,6 +13,7 @@ import (
 type Config struct {
 	AppEnv        string
 	EncryptionKey string
+	DatabaseURL   string
 }
 
 // Load loads configuration from environment variables.
@@ -41,6 +42,11 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not bind encryption.key: %w", err)
 	}
+	err = viper.BindEnv("database.url", "DATABASE_URL")
+	if err != nil {
+		return nil, fmt.Errorf("could not bind database.url: %w", err)
+	}
+
 
 	// 3. Set defaults
 	viper.SetDefault("app.env", "dev")
@@ -49,6 +55,7 @@ func Load() (*Config, error) {
 	cfg := Config{
 		AppEnv:        viper.GetString("app.env"),
 		EncryptionKey: viper.GetString("encryption.key"),
+		DatabaseURL:   viper.GetString("database.url"),
 	}
 
 	// 5. Validation
@@ -68,6 +75,9 @@ func Load() (*Config, error) {
 
 	if len(cfg.EncryptionKey) != 64 {
 		return nil, fmt.Errorf("ENCRYPTION_KEY must be a 64-character hex string (32 bytes), but got %d chars", len(cfg.EncryptionKey))
+	}
+	if cfg.DatabaseURL == "" {
+		return nil, errors.New("DATABASE_URL is not set or is empty")
 	}
 
 	return &cfg, nil
