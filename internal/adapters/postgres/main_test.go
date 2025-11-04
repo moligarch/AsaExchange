@@ -42,7 +42,7 @@ func TestMain(m *testing.M) {
 	}
 
 	// 4. Set up DB Connection
-	testDB, err = NewDB(context.Background(), cfg.DatabaseURL, &nopLogger)
+	testDB, err = NewDB(context.Background(), cfg.Postgres.URL, &nopLogger)
 	if err != nil {
 		log.Fatalf("TestMain: Failed to connect to test database: %v", err)
 	}

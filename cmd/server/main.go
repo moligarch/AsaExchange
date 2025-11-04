@@ -3,12 +3,17 @@ package main
 import (
 	"AsaExchange/internal/adapters/postgres"
 	"AsaExchange/internal/adapters/security"
+	"AsaExchange/internal/adapters/telegram"
 	"AsaExchange/internal/shared/config"
 	"AsaExchange/internal/shared/logger"
 	"context"
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
+
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 func main() {
@@ -20,63 +25,80 @@ func main() {
 	}
 
 	// 2. Initialize Logger
-	isDevMode := cfg.AppEnv == "dev"
+	isDevMode := cfg.AppEnv == "development"
 	baseLogger := logger.New(isDevMode)
 	baseLogger.Info().Msg("Logger initialized")
+	baseLogger.Info().Interface("config", cfg).Msg("Configuration loaded")
 
-	// 3. Print loaded config
-	baseLogger.Info().
-		Str("app_env", cfg.AppEnv).
-		Int("key_length", len(cfg.EncryptionKey)).
-		Msg("Configuration loaded")
+	// 3. Initialize Services & Context
+	// Create a context that listens for OS shutdown signals
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
-	// 4. Initialize the Security Service (NEW PATTERN)
 	keyBytes, err := hex.DecodeString(cfg.EncryptionKey)
 	if err != nil {
-		baseLogger.Fatal().Err(err).Msg("Failed to decode ENCRYPTION_KEY. It must be hex-encoded.")
+		baseLogger.Fatal().Err(err).Msg("Failed to decode ENCRYPTION_KEY")
 	}
-
-	// Pass the baseLogger. The service will add its own context.
 	secSvc, err := security.NewAESService(keyBytes, &baseLogger)
 	if err != nil {
 		baseLogger.Fatal().Err(err).Msg("Failed to initialize security service")
 	}
 
-	// 5. Initialize Database
-	ctx := context.Background()
-	db, err := postgres.NewDB(ctx, cfg.DatabaseURL, &baseLogger)
+	db, err := postgres.NewDB(ctx, cfg.Postgres.URL, &baseLogger)
 	if err != nil {
 		baseLogger.Fatal().Err(err).Msg("Failed to initialize database")
 	}
 	defer db.Close()
 
-	// 6. Initialize Repositories
+	// 4. Initialize Repositories
 	userRepo := postgres.NewUserRepository(db, secSvc, &baseLogger)
+	_ = postgres.NewUserBankAccountRepository(db, secSvc, &baseLogger)
 
-	// --- NEW: Initialize UserBankAccountRepository ---
-	bankRepo := postgres.NewUserBankAccountRepository(db, secSvc, &baseLogger)
+	// 5. Initialize Bot API Object
+	botAPI, err := tgbotapi.NewBotAPI(cfg.Bot.Token)
+	if err != nil {
+		baseLogger.Fatal().Err(err).Msg("Failed to create Bot API")
+	}
+	botAPI.Debug = cfg.AppEnv == "development"
 
+	baseLogger.Info().
+		Str("bot_username", botAPI.Self.UserName).
+		Str("mode", cfg.Bot.Mode).
+		Msg("Telegram Bot API connected")
+
+	// 6. Initialize Bot Client (Adapter)
+	botClient := telegram.NewClient(botAPI, &baseLogger)
+
+	// 7. Initialize Bot Router (Facade)
+	botRouter := telegram.NewRouter(userRepo, &baseLogger)
+
+	// 8. Register Handlers (Plugins)
+	baseLogger.Info().Msg("Bot router initialized (no handlers registered yet)")
 	baseLogger.Info().Msg("All services initialized successfully")
 
-	// --- Example Test (can be removed later) ---
-	baseLogger.Info().Msg("Testing user repository...")
-	testUser, err := userRepo.GetByTelegramID(ctx, 12345)
+	// 9. Example Test: Set Menu Commands
+	err = botClient.SetMenuCommands(ctx, 0, false) // 0 = global
 	if err != nil {
-		baseLogger.Error().Err(err).Msg("Failed to query test user")
-	}
-	if testUser == nil {
-		baseLogger.Info().Msg("Test user '12345' not found (this is normal on first run)")
+		baseLogger.Error().Err(err).Msg("Failed to set menu commands")
 	} else {
-		baseLogger.Info().Str("user_id", testUser.ID.String()).Msg("Found test user")
-
-		// --- NEW: Test bank repo ---
-		accts, err := bankRepo.GetByUserID(ctx, testUser.ID)
-		if err != nil {
-			baseLogger.Error().Err(err).Str("user_id", testUser.ID.String()).Msg("Failed to get bank accounts for test user")
-		} else {
-			baseLogger.Info().Int("count", len(accts)).Str("user_id", testUser.ID.String()).Msg("Found bank accounts for test user")
-		}
+		baseLogger.Info().Msg("Successfully set user menu commands")
 	}
 
-	baseLogger.Info().Msg("Application started. (No server running yet)")
+	// 10. Initialize Bot Server (Launcher)
+	botServer := telegram.NewBotServer(
+		botAPI,
+		botRouter,
+		&cfg.Bot,
+		&baseLogger,
+	)
+
+	// 11. Start Bot Launcher
+	baseLogger.Info().Msg("Application starting...")
+	if err := botServer.Start(ctx); err != nil {
+		// This will only log on a non-graceful shutdown (e.g., failed to set webhook)
+		baseLogger.Error().Err(err).Msg("Bot server failed")
+	}
+
+	// The context was cancelled (e.g., Ctrl+C), botServer.Start() returned
+	baseLogger.Info().Msg("Application shutting down")
 }

@@ -4,104 +4,123 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
+	"path/filepath"
 
-	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
 )
 
-// --- New/Updated Structs ---
+// --- Structs ---
 
-// Struct for pooling settings from config.yaml
 type PollingConfig struct {
 	WorkerPoolSize int `mapstructure:"worker_pool_size"`
 }
 
-// Struct for webhook settings from config.yaml
 type WebhookConfig struct {
-	ListenPort int    `mapstructure:"listen_port"` // From yaml
-	URL        string `mapstructure:"WEBHOOK_URL"` // From .env
+	ListenPort int    `mapstructure:"listen_port"`
+	URL        string `mapstructure:"url"`
 }
 
 type BotConfig struct {
-	Token     string        `mapstructure:"BOT_TOKEN"`     // From .env
-	ModToken  string        `mapstructure:"MOD_BOT_TOKEN"` // From .env
-	ChannelID int64         `mapstructure:"CHANNEL_ID"`    // From .env
-	Mode      string        `mapstructure:"mode"`          // From yaml
-	Polling   PollingConfig `mapstructure:"polling"`       // From yaml
-	Webhook   WebhookConfig `mapstructure:"webhook"`       // From yaml
+	Token     string        `mapstructure:"token"`
+	ModToken  string        `mapstructure:"mod_token"`
+	ChannelID int64         `mapstructure:"channel_id"`
+	Mode      string        `mapstructure:"mode"`
+	Polling   PollingConfig `mapstructure:"polling"`
+	Webhook   WebhookConfig `mapstructure:"webhook"`
+}
+
+// NEW struct for postgres config
+type PostgresConfig struct {
+	User     string `mapstructure:"user"`
+	Password string `mapstructure:"password"`
+	DB       string `mapstructure:"db"`
+	URL      string `mapstructure:"url"`
 }
 
 type Config struct {
-	AppEnv        string    `mapstructure:"app_env"`        // From yaml
-	EncryptionKey string    `mapstructure:"ENCRYPTION_KEY"` // From .env
-	DatabaseURL   string    `mapstructure:"DATABASE_URL"`   // From .env
-	Bot           BotConfig `mapstructure:"bot"`
+	AppEnv        string         `mapstructure:"app_env"`
+	EncryptionKey string         `mapstructure:"encryption_key"`
+	Postgres      PostgresConfig `mapstructure:"postgres"`
+	Bot           BotConfig      `mapstructure:"bot"`
 }
 
-// Load loads configuration from config.yaml AND .env
-func Load() (*Config, error) {
-	// 1. Load .env file (SECRETS)
-	if err := godotenv.Load(); err != nil {
-		if !os.IsNotExist(err) {
-			return nil, fmt.Errorf("error loading .env file: %w", err)
+// findProjectRoot (UNCHANGED)
+func findProjectRoot() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for i := 0; i < 5; i++ { // Search up 5 levels max
+		if _, err := os.Stat(filepath.Join(cwd, "go.mod")); err == nil {
+			return cwd, nil // Found it
 		}
+		// Go up one directory
+		parent := filepath.Dir(cwd)
+		if parent == cwd {
+			// Reached root without finding
+			break
+		}
+		cwd = parent
+	}
+
+	// Fallback to CWD if go.mod not found
+	cwd, err = os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	return cwd, nil
+}
+
+// Load loads configuration from config.yaml ONLY
+func Load() (*Config, error) {
+	// 1. Find project root
+	projectRoot, err := findProjectRoot()
+	if err != nil {
+		return nil, fmt.Errorf("error finding project root: %w", err)
 	}
 
 	// 2. Set up Viper
 	v := viper.New()
-
-	// 3. Load config.yaml (NON-SECRETS)
-	v.SetConfigName("config") // File name: config.yaml
+	v.SetConfigName("config")
 	v.SetConfigType("yaml")
-	v.AddConfigPath(".") // Look in current directory
+	v.AddConfigPath(projectRoot) // Look for config.yaml in the root
+
+	// 3. Read the config.yaml file.
+	// This is now a fatal error if it's not found.
 	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return nil, fmt.Errorf("failed to read config.yaml: %w", err)
-		}
+		return nil, fmt.Errorf("FATAL: failed to read config.yaml: %w", err)
 	}
 
-	// 4. Set Viper to read from Environment (for SECRETS)
-	v.AutomaticEnv()
-	// This maps env vars to the mapstructure tags
-	// e.g. BOT_TOKEN maps to `mapstructure:"BOT_TOKEN"`
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-
-	// 5. Set defaults
+	// 4. Set defaults (for any keys missing from the yaml)
 	v.SetDefault("app_env", "development")
 	v.SetDefault("bot.mode", "polling")
 	v.SetDefault("bot.polling.worker_pool_size", 5)
-	v.SetDefault("bot.webhook.listen_port", 8443) // Default port
+	v.SetDefault("bot.webhook.listen_port", 8443)
 
-	// 6. Unmarshal all config sources into our struct
+	// 5. Unmarshal the config
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
-		// This is the only way to debug viper's unmarshal
-		// fmt.Println("--- DEBUG VIPER SETTINGS ---")
-		// v.Debug()
-		// fmt.Println("------------------------------")
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	// 7. Validation
+	// 6. Validation (Updated to check new paths)
 	if cfg.EncryptionKey == "" {
-		return nil, errors.New("ENCRYPTION_KEY is not set (from .env or OS)")
+		return nil, errors.New("encryption_key is not set in config.yaml")
 	}
 	if len(cfg.EncryptionKey) != 64 {
-		return nil, errors.New("ENCRYPTION_KEY must be a 64-character hex string")
+		return nil, errors.New("encryption_key must be a 64-character hex string")
 	}
-	if cfg.DatabaseURL == "" {
-		return nil, errors.New("DATABASE_URL is not set (from .env or OS)")
+	if cfg.Postgres.URL == "" {
+		return nil, errors.New("postgres.url is not set in config.yaml")
 	}
 	if cfg.Bot.Token == "" {
-		return nil, errors.New("BOT_TOKEN is not set (from .env or OS)")
+		return nil, errors.New("bot.token is not set in config.yaml")
 	}
 	if cfg.Bot.Mode != "polling" && cfg.Bot.Mode != "webhook" {
 		return nil, errors.New("bot.mode must be 'polling' or 'webhook' in config.yaml")
 	}
-	// --- UPDATED VALIDATION ---
 	if cfg.Bot.Mode == "webhook" && cfg.Bot.Webhook.URL == "" {
-		return nil, errors.New("WEBHOOK_URL must be set in .env when BOT_MODE is 'webhook'")
+		return nil, errors.New("bot.webhook.url is not set in config.yaml")
 	}
 	if cfg.Bot.Polling.WorkerPoolSize <= 0 {
 		return nil, errors.New("bot.polling.worker_pool_size must be > 0")
