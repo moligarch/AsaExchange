@@ -4,6 +4,7 @@ import (
 	"AsaExchange/internal/adapters/postgres"
 	"AsaExchange/internal/adapters/security"
 	"AsaExchange/internal/adapters/telegram"
+	"AsaExchange/internal/bot/handlers"
 	"AsaExchange/internal/shared/config"
 	"AsaExchange/internal/shared/logger"
 	"context"
@@ -37,7 +38,7 @@ func main() {
 
 	keyBytes, err := hex.DecodeString(cfg.EncryptionKey)
 	if err != nil {
-		baseLogger.Fatal().Err(err).Msg("Failed to decode ENCRYPTION_KEY")
+		baseLogger.Fatal().Err(err).Msg("Failed to decode encryption_key")
 	}
 	secSvc, err := security.NewAESService(keyBytes, &baseLogger)
 	if err != nil {
@@ -73,7 +74,9 @@ func main() {
 	botRouter := telegram.NewRouter(userRepo, &baseLogger)
 
 	// 8. Register Handlers (Plugins)
-	baseLogger.Info().Msg("Bot router initialized (no handlers registered yet)")
+	startHandler := handlers.NewStartHandler(userRepo, botClient, &baseLogger)
+	botRouter.RegisterCommandHandler(startHandler)
+
 	baseLogger.Info().Msg("All services initialized successfully")
 
 	// 9. Example Test: Set Menu Commands
