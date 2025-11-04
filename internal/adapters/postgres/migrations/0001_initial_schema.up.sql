@@ -15,9 +15,9 @@ CREATE TYPE transaction_status AS ENUM (
 );
 
 CREATE TYPE user_verification_status AS ENUM (
-    'pending',  -- New user
-    'level_1',  -- ID verified
-    'rejected'  -- ID was invalid
+    'pending',  -- New user, awaits admin approval
+    'level_1',  -- Admin approved, can transact
+    'rejected'  -- Admin rejected
 );
 
 CREATE TYPE request_type AS ENUM (
@@ -47,7 +47,7 @@ CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     telegram_id BIGINT NOT NULL UNIQUE,
     first_name TEXT NOT NULL,
-    last_name TEXT,
+    last_name TEXT,          
     phone_number TEXT,              -- Encrypted
     government_id TEXT,             -- Encrypted
     location_country VARCHAR(3),    -- ISO 3166-1 alpha-3
