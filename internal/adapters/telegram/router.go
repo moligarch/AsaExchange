@@ -3,10 +3,9 @@ package telegram
 import (
 	"AsaExchange/internal/core/ports"
 	"context"
-	"strings" // <-- Make sure this is imported
-
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/rs/zerolog"
+	"strings"
 )
 
 // Router is the "Bot Facade." It holds all "plugins"
@@ -29,7 +28,6 @@ func NewRouter(userRepo ports.UserRepository, baseLogger *zerolog.Logger) *Route
 }
 
 // RegisterCommandHandler adds a "plugin" to the router.
-// (This version is correct)
 func (r *Router) RegisterCommandHandler(handler ports.CommandHandler) {
 	cmd := handler.Command()
 	r.commandHandlers[cmd] = handler
@@ -37,7 +35,6 @@ func (r *Router) RegisterCommandHandler(handler ports.CommandHandler) {
 }
 
 // RegisterCallbackHandler adds a "plugin" to the router.
-// (This version is correct)
 func (r *Router) RegisterCallbackHandler(handler ports.CallbackHandler) {
 	prefix := handler.Prefix()
 	r.callbackHandlers[prefix] = handler
@@ -45,7 +42,6 @@ func (r *Router) RegisterCallbackHandler(handler ports.CallbackHandler) {
 }
 
 // HandleUpdate is the main entry point for a new update from Telegram.
-// (This logic is correct and UNCHANGED)
 func (r *Router) HandleUpdate(ctx context.Context, update *tgbotapi.Update) {
 	// 1. Convert to our generic BotUpdate
 	botUpdate, isSupported := r.parseUpdate(update)
