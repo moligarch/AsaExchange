@@ -1,9 +1,11 @@
 package main
 
 import (
+	"AsaExchange/internal/adapters/postgres"
 	"AsaExchange/internal/adapters/security"
 	"AsaExchange/internal/shared/config"
 	"AsaExchange/internal/shared/logger"
+	"context"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -40,24 +42,41 @@ func main() {
 		baseLogger.Fatal().Err(err).Msg("Failed to initialize security service")
 	}
 
-	// --- Example Test of our service ---
-	baseLogger.Info().Msg("Testing encryption service from main...")
-	plaintext := "this is a secret"
-
-	ciphertext, err := secSvc.Encrypt([]byte(plaintext))
+	// 5. Initialize Database
+	ctx := context.Background()
+	db, err := postgres.NewDB(ctx, cfg.DatabaseURL, &baseLogger)
 	if err != nil {
-		baseLogger.Error().Err(err).Msg("Failed to encrypt")
-		return
+		baseLogger.Fatal().Err(err).Msg("Failed to initialize database")
+	}
+	defer db.Close()
+
+	// 6. Initialize Repositories
+	userRepo := postgres.NewUserRepository(db, secSvc, &baseLogger)
+
+	// --- NEW: Initialize UserBankAccountRepository ---
+	bankRepo := postgres.NewUserBankAccountRepository(db, secSvc, &baseLogger)
+
+	baseLogger.Info().Msg("All services initialized successfully")
+
+	// --- Example Test (can be removed later) ---
+	baseLogger.Info().Msg("Testing user repository...")
+	testUser, err := userRepo.GetByTelegramID(ctx, 12345)
+	if err != nil {
+		baseLogger.Error().Err(err).Msg("Failed to query test user")
+	}
+	if testUser == nil {
+		baseLogger.Info().Msg("Test user '12345' not found (this is normal on first run)")
+	} else {
+		baseLogger.Info().Str("user_id", testUser.ID.String()).Msg("Found test user")
+
+		// --- NEW: Test bank repo ---
+		accts, err := bankRepo.GetByUserID(ctx, testUser.ID)
+		if err != nil {
+			baseLogger.Error().Err(err).Str("user_id", testUser.ID.String()).Msg("Failed to get bank accounts for test user")
+		} else {
+			baseLogger.Info().Int("count", len(accts)).Str("user_id", testUser.ID.String()).Msg("Found bank accounts for test user")
+		}
 	}
 
-	decrypted, err := secSvc.Decrypt(ciphertext)
-	if err != nil {
-		baseLogger.Error().Err(err).Msg("Failed to decrypt")
-		return
-	}
-
-	baseLogger.Info().
-		Str("original", plaintext).
-		Str("decrypted", string(decrypted)).
-		Msg("Encryption roundtrip successful!")
+	baseLogger.Info().Msg("Application started. (No server running yet)")
 }

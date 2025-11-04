@@ -4,13 +4,18 @@ services:
     image: postgres:16-alpine
     container_name: asa_postgres
     environment:
-      POSTGRES_USER: asa_user
-      POSTGRES_PASSWORD: asa_password
-      POSTGRES_DB: asa_db
+      # Read credentials from the .env file
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432" # Expose Postgres to your host machine
+      # Bind to 127.0.0.1 (localhost) ONLY
+      # Not accessible from outside the server.
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - asa-network # Attach to our custom network
     restart: unless-stopped
 
   # --- Redis Cache ---
@@ -18,8 +23,16 @@ services:
     image: redis:7-alpine
     container_name: asa_redis
     ports:
-      - "6379:6379" # Expose Redis to your host machine
+      # Bind to 127.0.0.1 (localhost) ONLY
+      - "127.0.0.1:6379:6379"
+    networks:
+      - asa-network # Attach to our custom network
     restart: unless-stopped
+
+# --- Define the custom network ---
+networks:
+  asa-network:
+    driver: bridge
 
 volumes:
   postgres_data:
