@@ -1,0 +1,19 @@
+# Application environment: "development" or "production"
+app_env: "development"
+
+# Bot configuration (non-secrets)
+bot:
+  # "polling" (for local dev) or "webhook" (for production)
+  mode: "polling"
+  
+  # Configuration for polling mode
+  polling:
+    # Number of concurrent goroutines to process updates
+    worker_pool_size: 10
+    
+  # Configuration for webhook mode
+  # The URL itself is a secret and comes from .env
+  webhook:
+    # We can put non-secret webhook settings here later,
+    # like "max_connections" or "listen_port"
+    listen_port: 8443
