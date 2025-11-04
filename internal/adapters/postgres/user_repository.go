@@ -160,6 +160,7 @@ func (r *userRepository) GetByTelegramID(ctx context.Context, telegramID int64) 
 	user, err := r.scanUser(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			r.log.Info().Int64("telegram_id", telegramID).Msg("User not found")
 			return nil, nil // Return nil, nil for "not found"
 		}
 		return nil, err
@@ -175,6 +176,7 @@ func (r *userRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Use
 	user, err := r.scanUser(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			r.log.Info().Str("user_id", id.String()).Msg("User not found")
 			return nil, nil // Return nil, nil for "not found"
 		}
 		return nil, err
