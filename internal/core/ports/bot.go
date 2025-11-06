@@ -7,11 +7,17 @@ import (
 
 // --- Bot Message Structures ---
 
+type ContactInfo struct {
+	PhoneNumber string
+	UserID      int64 // The Telegram ID of the contact
+}
+
 // Button represents a single button in a keyboard.
 type Button struct {
-	Text string
-	Data string // For callbacks
-	URL  string // For URL buttons
+	Text           string
+	Data           string // For callbacks
+	URL            string // For URL buttons
+	RequestContact bool
 }
 
 // ReplyMarkup represents any kind of keyboard markup.
@@ -22,10 +28,11 @@ type ReplyMarkup struct {
 
 // SendMessageParams holds all possible options for sending a message.
 type SendMessageParams struct {
-	ChatID      int64
-	Text        string
-	ParseMode   string // e.g., "MarkdownV2" or "HTML"
-	ReplyMarkup *ReplyMarkup
+	ChatID         int64
+	Text           string
+	ParseMode      string // e.g., "MarkdownV2" or "HTML"
+	ReplyMarkup    *ReplyMarkup
+	RemoveKeyboard bool
 }
 
 // --- Bot Client Port (Outbound) ---
@@ -48,6 +55,7 @@ type BotUpdate struct {
 	Text         string
 	Command      string
 	CallbackData *string
+	Contact      *ContactInfo
 }
 
 // CommandHandler defines the "plugin" interface for handling bot commands.
