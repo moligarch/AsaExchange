@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"AsaExchange/internal/bot"
+	"AsaExchange/internal/bot/messages"
 	"AsaExchange/internal/core/domain"
 	"AsaExchange/internal/core/ports"
 	"context"
@@ -54,7 +55,7 @@ func (h *startHandler) Handle(ctx context.Context, update *ports.BotUpdate) erro
 	}
 
 	// 2. Handle the user based on their status
-	var responseText string
+	var msg ports.SendMessageParams
 
 	if user == nil {
 		// --- CASE 1: NEW USER ---
@@ -72,69 +73,78 @@ func (h *startHandler) Handle(ctx context.Context, update *ports.BotUpdate) erro
 
 		if err := h.userRepo.Create(ctx, newUser); err != nil {
 			ctxLogger.Error().Err(err).Msg("Failed to create new user")
-			h.sendErrorMessage(ctx, update.ChatID)
-			return err
+			return h.sendErrorMessage(ctx, update.ChatID)
 		}
 
 		ctxLogger.Info().Str("user_id", newUser.ID.String()).Msg("New user created successfully")
 
-		responseText = "👋 Welcome to AsaExchange\\!\n\nTo use our service, you must first register an account\\.\n\n"
-		responseText += "Please reply with your **legal First Name** as it appears on your ID\\."
+		text := "👋 Welcome to AsaExchange\\!\n\nTo use our service, you must first register an account\\.\n\n"
+		text += "Please reply with your *legal First Name* as it appears on your ID\\."
+		msg = messages.NewBuilder(update.ChatID).WithText(text).WithRemoveKeyboard().Build()
 
 	} else {
 		// --- CASE 2: EXISTING USER ---
 		ctxLogger.Info().Str("user_id", user.ID.String()).Str("status", string(user.VerificationStatus)).Msg("Existing user found.")
 
+		var responseText string
 		switch user.VerificationStatus {
 		case domain.VerificationPending:
 			// Check their state to see if they are in the middle of registration
 			switch user.State {
 			case domain.StateAwaitingFirstName:
-				responseText = "Please reply with your **legal First Name** as it appears on your ID\\."
+				responseText = "Please reply with your *legal First Name* as it appears on your ID\\."
 			case domain.StateAwaitingLastName:
-				responseText = "Please reply with your **legal Last Name** as it appears on your ID\\."
+				responseText = "Please reply with your *legal Last Name* as it appears on your ID\\."
+			case domain.StateAwaitingGovID:
+				responseText = "Please reply with your *Government ID / National ID Number*\\."
 			// Add other states (phone, gov_id) here later
-			case domain.StateAwaitingPhoneNumber, domain.StateAwaitingGovID, domain.StateAwaitingLocation, domain.StateAwaitingPolicyApproval:
+			case domain.StateAwaitingPhoneNumber:
+				msg = messages.NewBuilder(update.ChatID).
+					WithText("Please share your *Phone Number* by pressing the button below\\.").
+					WithContactButton("Share My Phone Number").
+					Build()
+			case domain.StateAwaitingLocation, domain.StateAwaitingPolicyApproval:
 				responseText = "Your registration is in progress\\. Please follow the instructions\\."
+				msg = messages.NewBuilder(update.ChatID).WithText(responseText).WithRemoveKeyboard().Build()
 			case domain.StateNone:
-				responseText = fmt.Sprintf(
-					"Hello, %s. Your account is still **pending verification**\\. Please wait for an admin to approve your identity\\.",
-					*user.FirstName, // Assumes first name is set by now
-				)
+				if user.FirstName != nil {
+					responseText = fmt.Sprintf(
+						"Hello, %s\\. Your account is still *pending verification*\\. Please wait for an admin to approve your identity\\.",
+						*user.FirstName,
+					)
+				} else {
+					responseText = "Your account is still *pending verification*\\. Please wait\\."
+				}
+				msg = messages.NewBuilder(update.ChatID).WithText(responseText).WithRemoveKeyboard().Build()
 			default:
-				responseText = "Your account is still **pending verification**\\. Please wait\\."
+				responseText = "Your account is still *pending verification*\\. Please wait\\."
+				msg = messages.NewBuilder(update.ChatID).WithText(responseText).WithRemoveKeyboard().Build()
 			}
 
 		case domain.VerificationRejected:
 			responseText = "There was an issue with your identity verification\\. Please contact support\\."
+			msg = messages.NewBuilder(update.ChatID).WithText(responseText).WithRemoveKeyboard().Build()
 		case domain.VerificationLevel1:
 			responseText = fmt.Sprintf(
 				"👋 Welcome back, %s\\! Use the menu to get started\\.",
 				*user.FirstName,
 			)
+			msg = messages.NewBuilder(update.ChatID).WithText(responseText).WithRemoveKeyboard().Build()
+		}
+
+		// If we didn't already build a special message, build a simple text one.
+		if msg.Text == "" {
+			msg = messages.NewBuilder(update.ChatID).WithText(responseText).Build()
 		}
 	}
 
-	// 3. Send the appropriate message
-	msgParams := ports.SendMessageParams{
-		ChatID:    update.ChatID,
-		Text:      responseText,
-		ParseMode: "MarkdownV2",
-	}
-
-	if err := h.bot.SendMessage(ctx, msgParams); err != nil {
-		ctxLogger.Error().Err(err).Msg("Failed to send message")
-		return err
-	}
-
-	return nil
+	return h.bot.SendMessage(ctx, msg)
 }
 
 // sendErrorMessage is a helper to send a generic error
-func (h *startHandler) sendErrorMessage(ctx context.Context, chatID int64) {
-	msgParams := ports.SendMessageParams{
-		ChatID: chatID,
-		Text:   "An internal error occurred. Please try again later.",
-	}
-	h.bot.SendMessage(ctx, msgParams)
+func (h *startHandler) sendErrorMessage(ctx context.Context, chatID int64) error {
+	msgParams := messages.NewBuilder(chatID).
+		WithText("An internal error occurred. Please try again later.").
+		WithParseMode("").Build() // Use plain text for simple error
+	return h.bot.SendMessage(ctx, msgParams)
 }
