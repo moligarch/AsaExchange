@@ -16,9 +16,10 @@ func createTestUser(t *testing.T, repo ports.UserRepository) *domain.User {
 	user := &domain.User{
 		ID:                 uuid.New(),
 		TelegramID:         time.Now().UnixNano(),
-		FirstName:          "BankAccount",
+		FirstName:          func(s string) *string { return &s }("BankAccount"),
 		LastName:           func(s string) *string { return &s }("TestUser"),
 		VerificationStatus: domain.VerificationPending,
+		State:              domain.StateAwaitingFirstName,
 	}
 	err := repo.Create(context.Background(), user)
 	if err != nil {
