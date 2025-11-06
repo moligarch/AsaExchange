@@ -12,3 +12,4 @@ DROP TYPE IF EXISTS user_verification_status;
 DROP TYPE IF EXISTS request_type;
 DROP TYPE IF EXISTS request_status;
 DROP TYPE IF EXISTS bid_status;
+DROP TYPE IF EXISTS user_state_enum;

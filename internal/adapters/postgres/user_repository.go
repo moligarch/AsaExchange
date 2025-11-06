@@ -59,8 +59,8 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 	query := `
 		INSERT INTO users (
 			id, telegram_id, first_name, last_name, phone_number,
-			government_id, location_country, verification_status, is_moderator
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			government_id, location_country, verification_status, user_state, is_moderator
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
 	_, err = r.db.pool.Exec(ctx, query,
 		user.ID,
@@ -71,6 +71,7 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 		encGovID,
 		user.LocationCountry,
 		user.VerificationStatus,
+		user.State,
 		user.IsModerator,
 	)
 
@@ -95,6 +96,7 @@ func (r *userRepository) scanUser(row pgx.Row) (*domain.User, error) {
 		&encGovID,
 		&user.LocationCountry,
 		&user.VerificationStatus,
+		&user.State,
 		&user.IsModerator,
 		&user.CreatedAt,
 		&user.UpdatedAt,
@@ -148,7 +150,7 @@ func (r *userRepository) scanUser(row pgx.Row) (*domain.User, error) {
 // sharedQuery is the list of columns for scanning
 const userQueryCols = `
 	id, telegram_id, first_name, last_name, phone_number,
-	government_id, location_country, verification_status, is_moderator,
+	government_id, location_country, verification_status, user_state, is_moderator,
 	created_at, updated_at
 `
 

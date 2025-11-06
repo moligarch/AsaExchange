@@ -64,3 +64,12 @@ type CallbackHandler interface {
 	// Handle processes the callback.
 	Handle(ctx context.Context, update *BotUpdate) error
 }
+
+// StateHandler defines the interface for handling text messages
+// based on the user's current state.
+type StateHandler interface {
+	// State returns the state this handler is responsible for.
+	State() domain.UserState
+	// Handle processes the text message.
+	Handle(ctx context.Context, update *BotUpdate, user *domain.User) error
+}
