@@ -22,29 +22,30 @@ func TestUserRepository_Create_GetByTelegramID_Roundtrip(t *testing.T) {
 	// 1. Setup
 	nopLogger := zerolog.Nop()
 	repo := NewUserRepository(testDB, testSecSvc, &nopLogger)
+	ctx := context.Background()
 
 	phone := "123456789"
 	govID := "ABC-123"
+	firstName := "Test"
 
 	user := &domain.User{
 		ID:                 uuid.New(),
-		TelegramID:         time.Now().UnixNano(), // Unique ID for testing
-		FirstName:          "Test",
+		TelegramID:         time.Now().UnixNano(),
+		FirstName:          &firstName,
 		LastName:           func(s string) *string { return &s }("User"),
 		PhoneNumber:        &phone,
 		GovernmentID:       &govID,
 		LocationCountry:    func(s string) *string { return &s }("USA"),
 		VerificationStatus: domain.VerificationPending,
+		State:              domain.StateAwaitingLastName,
 		IsModerator:        false,
 	}
 
 	// 2. Run Create
-	ctx := context.Background()
 	err := repo.Create(ctx, user)
 	if err != nil {
 		t.Fatalf("Failed to create user: %v", err)
 	}
-	// Defer cleanup
 	defer cleanupTestUser(t, user.ID)
 
 	// 3. Run GetByTelegramID
@@ -60,14 +61,17 @@ func TestUserRepository_Create_GetByTelegramID_Roundtrip(t *testing.T) {
 	if foundUser.ID != user.ID {
 		t.Errorf("ID mismatch: got %v, want %v", foundUser.ID, user.ID)
 	}
-	if foundUser.FirstName != user.FirstName {
-		t.Errorf("FirstName mismatch: got %s, want %s", foundUser.FirstName, user.FirstName)
+	if *foundUser.FirstName != *user.FirstName {
+		t.Errorf("FirstName mismatch: got %s, want %s", *foundUser.FirstName, *user.FirstName)
 	}
 	if *foundUser.PhoneNumber != *user.PhoneNumber {
 		t.Errorf("PhoneNumber mismatch (decryption failed?): got %s, want %s", *foundUser.PhoneNumber, *user.PhoneNumber)
 	}
 	if *foundUser.GovernmentID != *user.GovernmentID {
 		t.Errorf("GovernmentID mismatch (decryption failed?): got %s, want %s", *foundUser.GovernmentID, *user.GovernmentID)
+	}
+	if foundUser.State != user.State {
+		t.Errorf("State mismatch: got %s, want %s", foundUser.State, user.State)
 	}
 	t.Logf("Successfully created and retrieved user %s", user.ID)
 }
@@ -86,4 +90,71 @@ func TestUserRepository_GetByTelegramID_NotFound(t *testing.T) {
 	if foundUser != nil {
 		t.Fatalf("GetByTelegramID found a user, but it should not exist")
 	}
+}
+
+func TestUserRepository_Update(t *testing.T) {
+	// 1. Setup
+	nopLogger := zerolog.Nop()
+	repo := NewUserRepository(testDB, testSecSvc, &nopLogger)
+	ctx := t.Context()
+
+	user := createTestUser(t, repo)
+	defer cleanupTestUser(t, user.ID)
+
+	// 2. Modify the user struct
+	newFirstName := "Moein"
+	newLastName := "Verkiani"
+	newState := domain.StateAwaitingLastName
+
+	user.FirstName = &newFirstName
+	user.LastName = &newLastName
+	user.State = newState
+
+	// 3. Run Update
+	err := repo.Update(ctx, user)
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+
+	// 4. Verify
+	updatedUser, err := repo.GetByID(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+
+	if *updatedUser.FirstName != newFirstName {
+		t.Errorf("FirstName was not updated: got %s, want %s", *updatedUser.FirstName, newFirstName)
+	}
+	if *updatedUser.LastName != newLastName {
+		t.Errorf("LastName was not updated: got %s, want %s", *updatedUser.LastName, newLastName)
+	}
+	if updatedUser.State != newState {
+		t.Errorf("State was not updated: got %s, want %s", updatedUser.State, newState)
+	}
+	t.Logf("Successfully updated user")
+}
+
+func TestUserRepository_Delete(t *testing.T) {
+	// 1. Setup
+	nopLogger := zerolog.Nop()
+	repo := NewUserRepository(testDB, testSecSvc, &nopLogger)
+	ctx := t.Context()
+
+	user := createTestUser(t, repo) // We don't need the cleanup func
+
+	// 2. Run Delete
+	err := repo.Delete(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+
+	// 3. Verify
+	deletedUser, err := repo.GetByID(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed after delete: %v", err)
+	}
+	if deletedUser != nil {
+		t.Fatal("User was found after delete, but should be nil")
+	}
+	t.Logf("Successfully deleted user")
 }

@@ -185,3 +185,85 @@ func (r *userRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Use
 	}
 	return user, nil
 }
+
+// Update saves all fields of the user struct, re-encrypting sensitive data.
+func (r *userRepository) Update(ctx context.Context, user *domain.User) error {
+	// 1. Re-encrypt sensitive fields
+	var err error
+	var encPhone, encGovID *string
+
+	if user.PhoneNumber != nil {
+		encBytes, err := r.secSvc.Encrypt([]byte(*user.PhoneNumber))
+		if err != nil {
+			r.log.Error().Err(err).Msg("Failed to encrypt phone number for update")
+			return err
+		}
+		encStr := base64.StdEncoding.EncodeToString(encBytes)
+		encPhone = &encStr
+	}
+	if user.GovernmentID != nil {
+		encBytes, err := r.secSvc.Encrypt([]byte(*user.GovernmentID))
+		if err != nil {
+			r.log.Error().Err(err).Msg("Failed to encrypt government ID for update")
+			return err
+		}
+		encStr := base64.StdEncoding.EncodeToString(encBytes)
+		encGovID = &encStr
+	}
+
+	// 2. Run the update query
+	query := `
+		UPDATE users SET
+			first_name = $1,
+			last_name = $2,
+			phone_number = $3,
+			government_id = $4,
+			location_country = $5,
+			verification_status = $6,
+			user_state = $7,
+			is_moderator = $8,
+			updated_at = NOW()
+		WHERE id = $9
+	`
+	cmdTag, err := r.db.pool.Exec(ctx, query,
+		user.FirstName,
+		user.LastName,
+		encPhone,
+		encGovID,
+		user.LocationCountry,
+		user.VerificationStatus,
+		user.State,
+		user.IsModerator,
+		user.ID, // The WHERE clause
+	)
+
+	if err != nil {
+		r.log.Error().Err(err).Str("user_id", user.ID.String()).Msg("Failed to update user")
+		return err
+	}
+
+	if cmdTag.RowsAffected() == 0 {
+		r.log.Error().Err(errors.New("no rows affected")).Str("user_id", user.ID.String()).Msg("User not found when trying to update")
+		return errors.New("user not found")
+	}
+
+	return nil
+}
+
+// Delete removes a user from the database.
+func (r *userRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	query := `DELETE FROM users WHERE id = $1`
+
+	cmdTag, err := r.db.pool.Exec(ctx, query, id)
+	if err != nil {
+		r.log.Error().Err(err).Str("user_id", id.String()).Msg("Failed to delete user")
+		return err
+	}
+
+	if cmdTag.RowsAffected() == 0 {
+		r.log.Error().Err(errors.New("no rows affected")).Str("user_id", id.String()).Msg("User not found when trying to delete")
+		return errors.New("user not found")
+	}
+
+	return nil
+}
