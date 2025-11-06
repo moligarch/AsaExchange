@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
@@ -52,12 +53,28 @@ func (h *startHandler) Handle(ctx context.Context, update *ports.BotUpdate) erro
 
 	if user == nil {
 		// --- CASE 1: NEW USER ---
-		ctxLogger.Info().Msg("New user found. Prompting for registration.")
-		responseText = "👋 Welcome to AsaExchange!\n\nTo use our service, you must first register an account.\n\n"
-		responseText += "Please reply with your **legal First Name** as it appears on your ID."
+		ctxLogger.Info().Msg("New user found. Creating account and prompting for registration.")
 
-		// TODO: We must now set the user's "state" to "awaiting_first_name"
-		// For now, we just send the message.
+		newUser := &domain.User{
+			ID:                 uuid.New(),
+			TelegramID:         update.UserID,
+			FirstName:          nil,
+			LastName:           nil,
+			VerificationStatus: domain.VerificationPending,
+			State:              domain.StateAwaitingFirstName,
+			IsModerator:        false,
+		}
+
+		if err := h.userRepo.Create(ctx, newUser); err != nil {
+			ctxLogger.Error().Err(err).Msg("Failed to create new user")
+			h.sendErrorMessage(ctx, update.ChatID)
+			return err
+		}
+
+		ctxLogger.Info().Str("user_id", newUser.ID.String()).Msg("New user created successfully")
+
+		responseText = "👋 Welcome to AsaExchange\\!\n\nTo use our service, you must first register an account\\.\n\n"
+		responseText += "Please reply with your **legal First Name** as it appears on your ID\\."
 
 	} else {
 		// --- CASE 2: EXISTING USER ---
@@ -65,25 +82,39 @@ func (h *startHandler) Handle(ctx context.Context, update *ports.BotUpdate) erro
 
 		switch user.VerificationStatus {
 		case domain.VerificationPending:
-			responseText = fmt.Sprintf(
-				"Hello, %s. Your account is still **pending verification**. Please wait for an admin to approve your identity.",
-				user.FirstName,
-			)
+			// Check their state to see if they are in the middle of registration
+			switch user.State {
+			case domain.StateAwaitingFirstName:
+				responseText = "Please reply with your **legal First Name** as it appears on your ID\\."
+			case domain.StateAwaitingLastName:
+				responseText = "Please reply with your **legal Last Name** as it appears on your ID\\."
+			// Add other states (phone, gov_id) here later
+			case domain.StateAwaitingPhoneNumber, domain.StateAwaitingGovID, domain.StateAwaitingLocation, domain.StateAwaitingPolicyApproval:
+				responseText = "Your registration is in progress\\. Please follow the instructions\\."
+			case domain.StateNone:
+				responseText = fmt.Sprintf(
+					"Hello, %s. Your account is still **pending verification**\\. Please wait for an admin to approve your identity\\.",
+					*user.FirstName, // Assumes first name is set by now
+				)
+			default:
+				responseText = "Your account is still **pending verification**\\. Please wait\\."
+			}
+
 		case domain.VerificationRejected:
-			responseText = "There was an issue with your identity verification. Please contact support."
+			responseText = "There was an issue with your identity verification\\. Please contact support\\."
 		case domain.VerificationLevel1:
 			responseText = fmt.Sprintf(
-				"👋 Welcome back, %s! Use the menu to get started.",
-				user.FirstName,
+				"👋 Welcome back, %s\\! Use the menu to get started\\.",
+				*user.FirstName,
 			)
 		}
 	}
 
 	// 3. Send the appropriate message
 	msgParams := ports.SendMessageParams{
-		ChatID: update.ChatID,
-		Text:   responseText,
-		// ParseMode: "MarkdownV2",
+		ChatID:    update.ChatID,
+		Text:      responseText,
+		ParseMode: "MarkdownV2",
 	}
 
 	if err := h.bot.SendMessage(ctx, msgParams); err != nil {
