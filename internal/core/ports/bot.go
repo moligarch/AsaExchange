@@ -1,6 +1,7 @@
 package ports
 
 import (
+	"AsaExchange/internal/core/domain"
 	"context"
 )
 
@@ -65,11 +66,8 @@ type CallbackHandler interface {
 	Handle(ctx context.Context, update *BotUpdate) error
 }
 
-// StateHandler defines the interface for handling text messages
-// based on the user's current state.
-type StateHandler interface {
-	// State returns the state this handler is responsible for.
-	State() domain.UserState
-	// Handle processes the text message.
+// TextHandler defines the interface for handling any non-command text message.
+type TextHandler interface {
+	// Handle processes the text message, using the user's state to route logic.
 	Handle(ctx context.Context, update *BotUpdate, user *domain.User) error
 }

@@ -4,7 +4,8 @@ import (
 	"AsaExchange/internal/adapters/postgres"
 	"AsaExchange/internal/adapters/security"
 	"AsaExchange/internal/adapters/telegram"
-	"AsaExchange/internal/bot/handlers"
+	"AsaExchange/internal/bot"
+	_ "AsaExchange/internal/bot/handlers"
 	"AsaExchange/internal/shared/config"
 	"AsaExchange/internal/shared/logger"
 	"context"
@@ -71,11 +72,11 @@ func main() {
 	botClient := telegram.NewClient(botAPI, &baseLogger)
 
 	// 7. Initialize Bot Router (Facade)
-	botRouter := telegram.NewRouter(userRepo, &baseLogger)
+	botRouter := telegram.NewRouter(userRepo, botClient, &baseLogger)
 
 	// 8. Register Handlers (Plugins)
-	startHandler := handlers.NewStartHandler(userRepo, botClient, &baseLogger)
-	botRouter.RegisterCommandHandler(startHandler)
+	// Register all handlers from the global registry
+	bot.RegisterAllHandlers(botRouter, userRepo, botClient, &baseLogger)
 
 	baseLogger.Info().Msg("All services initialized successfully")
 
