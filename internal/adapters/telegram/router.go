@@ -55,6 +55,7 @@ func (r *Router) SetTextHandler(handler ports.TextHandler) {
 }
 
 // HandleUpdate is the main entry point for a new update from Telegram.
+// If it's *anything* else (Text, Contact, Photo...), pass it to the text/state handler.
 func (r *Router) HandleUpdate(ctx context.Context, update *tgbotapi.Update) {
 	// 1. Convert to our generic BotUpdate
 	botUpdate, isSupported := r.parseUpdate(update)
@@ -79,7 +80,6 @@ func (r *Router) HandleUpdate(ctx context.Context, update *tgbotapi.Update) {
 			}
 			return
 		}
-		// Don't warn, fall through
 	}
 
 	// 4. Route callbacks next
@@ -97,8 +97,8 @@ func (r *Router) HandleUpdate(ctx context.Context, update *tgbotapi.Update) {
 		return
 	}
 
-	// 5.  If it's not a command or callback, it's text.
-	// We must get the user.
+	// 5. If it's not a command or callback, it's a message
+	// (Text, Contact, Photo, etc). Pass it to the TextHandler.
 	user, err := r.userRepo.GetByTelegramID(ctx, botUpdate.UserID)
 	if err != nil {
 		ctxLogger.Error().Err(err).Msg("Failed to get user for state handling")
@@ -110,10 +110,10 @@ func (r *Router) HandleUpdate(ctx context.Context, update *tgbotapi.Update) {
 	}
 
 	if user == nil {
-		// User sent text without ever typing /start
+		// User sent a message without ever typing /start
 		r.botClient.SendMessage(ctx, ports.SendMessageParams{
-			ChatID: botUpdate.ChatID,
-			Text:   "Please type /start to begin\\.",
+			ChatID:    botUpdate.ChatID,
+			Text:      "Please type /start to begin\\.",
 			ParseMode: "MarkdownV2",
 		})
 		return
@@ -121,15 +121,22 @@ func (r *Router) HandleUpdate(ctx context.Context, update *tgbotapi.Update) {
 
 	// Check if we have a text handler registered
 	if r.textHandler != nil {
-		ctxLogger.Info().Str("state", string(user.State)).Msg("Routing to text handler")
+		// Log what type of message we're routing
+		log := ctxLogger.With().Str("state", string(user.State)).Logger()
+		if botUpdate.Contact != nil {
+			log.Info().Msg("Routing contact message to text handler")
+		} else {
+			log.Info().Msg("Routing text message to text handler")
+		}
+
 		if err := r.textHandler.Handle(ctx, botUpdate, user); err != nil {
 			ctxLogger.Error().Err(err).Msg("Text handler failed")
 		}
 		return
 	}
 
-	// If we're here, it's an unhandled text message
-	ctxLogger.Info().Str("text", botUpdate.Text).Msg("Received unhandled text message (no handler)")
+	// If we're here, it's an unhandled message
+	ctxLogger.Info().Str("text", botUpdate.Text).Msg("Received unhandled message (no handler)")
 }
 
 // parseUpdate converts a tgbotapi.Update into our internal, simplified struct.
@@ -148,12 +155,20 @@ func (r *Router) parseUpdate(update *tgbotapi.Update) (*ports.BotUpdate, bool) {
 	if update.Message != nil {
 		// This is a Message
 		msg := update.Message
+		var contactInfo *ports.ContactInfo
+		if msg.Contact != nil {
+			contactInfo = &ports.ContactInfo{
+				PhoneNumber: msg.Contact.PhoneNumber,
+				UserID:      msg.Contact.UserID,
+			}
+		}
 		return &ports.BotUpdate{
 			MessageID: msg.MessageID,
 			ChatID:    msg.Chat.ID,
 			UserID:    msg.From.ID,
 			Text:      msg.Text,
 			Command:   msg.Command(),
+			Contact:   contactInfo,
 		}, true
 	}
 

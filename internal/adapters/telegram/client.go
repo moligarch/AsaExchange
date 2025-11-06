@@ -26,12 +26,13 @@ func (c *tgClient) SendMessage(ctx context.Context, params ports.SendMessagePara
 	msg := tgbotapi.NewMessage(params.ChatID, params.Text)
 	msg.ParseMode = params.ParseMode
 
-	if params.ReplyMarkup != nil {
+	// Handle keyboard removal first
+	if params.RemoveKeyboard {
+		msg.ReplyMarkup = tgbotapi.ReplyKeyboardRemove{RemoveKeyboard: true}
+	} else if params.ReplyMarkup != nil {
 		if params.ReplyMarkup.IsInline {
-			// Set inline keyboard
 			msg.ReplyMarkup = c.buildInlineKeyboard(params.ReplyMarkup.Buttons)
 		} else {
-			// Set reply keyboard
 			msg.ReplyMarkup = c.buildReplyKeyboard(params.ReplyMarkup.Buttons)
 		}
 	}
@@ -66,16 +67,18 @@ func (c *tgClient) buildReplyKeyboard(buttons [][]ports.Button) tgbotapi.ReplyKe
 	for _, buttonRow := range buttons {
 		var row []tgbotapi.KeyboardButton
 		for _, btn := range buttonRow {
-			// Note: ReplyKeyboard only supports text, no URLs or callback data
-			row = append(row, tgbotapi.NewKeyboardButton(btn.Text))
+			if btn.RequestContact {
+				row = append(row, tgbotapi.NewKeyboardButtonContact(btn.Text))
+			} else {
+				row = append(row, tgbotapi.NewKeyboardButton(btn.Text))
+			}
 		}
 		rows = append(rows, row)
 	}
 
-	// Create a one-time, resizable keyboard
 	markup := tgbotapi.NewReplyKeyboard(rows...)
 	markup.ResizeKeyboard = true
-	markup.OneTimeKeyboard = true
+	markup.OneTimeKeyboard = true // Keyboard hides after one use
 	return markup
 }
 
