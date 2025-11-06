@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"AsaExchange/internal/bot"
 	"AsaExchange/internal/core/domain"
 	"AsaExchange/internal/core/ports"
 	"context"
@@ -9,6 +10,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
+
+func init() {
+	bot.RegisterCommand(NewStartHandler)
+}
 
 // startHandler is the plugin for the /start command.
 type startHandler struct {

@@ -1,12 +1,17 @@
 package handlers
 
 import (
+	"AsaExchange/internal/bot"
 	"AsaExchange/internal/core/domain"
 	"AsaExchange/internal/core/ports"
 	"context"
 
 	"github.com/rs/zerolog"
 )
+
+func init() {
+	bot.RegisterText(NewRegistrationHandler)
+}
 
 // registrationHandler
 type registrationHandler struct {
