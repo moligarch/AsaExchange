@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"AsaExchange/internal/adapters/security"
+	"AsaExchange/internal/core/domain"
 	"AsaExchange/internal/core/ports"
 	"AsaExchange/internal/shared/config"
 	"context"
@@ -9,7 +10,9 @@ import (
 	"log"
 	"os"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
@@ -53,4 +56,48 @@ func TestMain(m *testing.M) {
 	// 6. Teardown
 	testDB.Close()
 	os.Exit(code)
+}
+
+// Helper to create a user for testing
+func createTestUser(t *testing.T, repo ports.UserRepository) (*domain.User, func()) {
+	strategy := "manual"
+	user := &domain.User{
+		ID:                   uuid.New(),
+		TelegramID:           time.Now().UnixNano(),
+		FirstName:            func(s string) *string { return &s }("Test"),
+		LastName:             func(s string) *string { return &s }("User"),
+		VerificationStatus:   domain.VerificationPending,
+		State:                domain.StateAwaitingFirstName,
+		VerificationStrategy: &strategy,
+	}
+	ctx := t.Context()
+	err := repo.Create(ctx, user)
+	if err != nil {
+		log.Fatalf("createTestUser failed: %v", err)
+	}
+
+	cleanup := func() {
+		err := repo.Delete(ctx, user.ID)
+		if err != nil {
+			log.Printf("Warning: failed to cleanup test user %s: %v", user.ID, err)
+		}
+	}
+
+	return user, cleanup
+}
+
+// Helper to clean up the DB after tests
+func cleanupTestUser(t *testing.T, id uuid.UUID) {
+	_, err := testDB.pool.Exec(t.Context(), "DELETE FROM users WHERE id = $1", id)
+	if err != nil {
+		t.Logf("Warning: Failed to cleanup user %s: %v", id, err)
+	}
+}
+
+// Helper to clean up the bank account
+func cleanupTestUserBankAccount(t *testing.T, id uuid.UUID) {
+	_, err := testDB.pool.Exec(t.Context(), "DELETE FROM user_bank_accounts WHERE id = $1", id)
+	if err != nil {
+		t.Logf("Warning: Failed to cleanup bank account %s: %v", id, err)
+	}
 }

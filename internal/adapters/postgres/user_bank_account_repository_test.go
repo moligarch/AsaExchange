@@ -2,39 +2,12 @@ package postgres
 
 import (
 	"AsaExchange/internal/core/domain"
-	"AsaExchange/internal/core/ports"
 	"context"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
-
-// Helper to create a user for testing
-func createTestUser(t *testing.T, repo ports.UserRepository) *domain.User {
-	user := &domain.User{
-		ID:                 uuid.New(),
-		TelegramID:         time.Now().UnixNano(),
-		FirstName:          func(s string) *string { return &s }("BankAccount"),
-		LastName:           func(s string) *string { return &s }("TestUser"),
-		VerificationStatus: domain.VerificationPending,
-		State:              domain.StateAwaitingFirstName,
-	}
-	err := repo.Create(context.Background(), user)
-	if err != nil {
-		t.Fatalf("Failed to create test user for bank acct test: %v", err)
-	}
-	return user
-}
-
-// Helper to clean up the bank account
-func cleanupTestUserBankAccount(t *testing.T, id uuid.UUID) {
-	_, err := testDB.pool.Exec(context.Background(), "DELETE FROM user_bank_accounts WHERE id = $1", id)
-	if err != nil {
-		t.Logf("Warning: Failed to cleanup bank account %s: %v", id, err)
-	}
-}
 
 func TestUserBankAccountRepository_Create_GetByUserID_Roundtrip(t *testing.T) {
 	// 1. Setup
@@ -47,8 +20,8 @@ func TestUserBankAccountRepository_Create_GetByUserID_Roundtrip(t *testing.T) {
 	bankRepo := NewUserBankAccountRepository(testDB, testSecSvc, &nopLogger)
 
 	// Create a user to own the account
-	user := createTestUser(t, userRepo)
-	defer cleanupTestUser(t, user.ID) // Clean up the user
+	user, cleaup := createTestUser(t, userRepo)
+	defer cleaup()
 
 	// 2. Create Bank Account
 	acctDetails := "IBAN: DE89 3704 0044 0532 0130 00"
