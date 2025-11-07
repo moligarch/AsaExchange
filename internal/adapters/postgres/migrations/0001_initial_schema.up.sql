@@ -44,8 +44,9 @@ CREATE TYPE user_state_enum AS ENUM (
     'awaiting_first_name',
     'awaiting_last_name',
     'awaiting_phone_number',  
-    'awaiting_gov_id',        
+    'awaiting_gov_id',
     'awaiting_location',      
+    'awaiting_identity_doc',        
     'awaiting_policy_approval'
 );
 
@@ -54,18 +55,20 @@ CREATE TYPE user_state_enum AS ENUM (
 
 -- Users Table
 CREATE TABLE users (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    telegram_id         BIGINT NOT NULL UNIQUE,
-    first_name          TEXT,
-    last_name           TEXT,          
-    phone_number        TEXT,              -- Encrypted
-    government_id       TEXT,              -- Encrypted
-    location_country    VARCHAR(3),        -- ISO 3166-1 alpha-3
-    verification_status user_verification_status NOT NULL DEFAULT 'pending',
-    user_state          user_state_enum NOT NULL DEFAULT 'awaiting_first_name',
-    is_moderator        BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    telegram_id             BIGINT NOT NULL UNIQUE,
+    first_name              TEXT,
+    last_name               TEXT,          
+    phone_number            TEXT,              -- Encrypted
+    government_id           TEXT,              -- Encrypted
+    location_country        VARCHAR(3),        -- ISO 3166-1 alpha-3
+    verification_status     user_verification_status NOT NULL DEFAULT 'pending',
+    user_state              user_state_enum NOT NULL DEFAULT 'awaiting_first_name',
+    verification_strategy   TEXT,              -- e.g., 'manual', 'dolate_man'
+    government_id_photo_id  TEXT,              -- Telegram FileID for the user's ID photo
+    is_moderator            BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Platform Accounts (Our company's bank accounts)

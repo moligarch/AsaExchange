@@ -25,21 +25,24 @@ const (
 	StateAwaitingPhoneNumber    UserState = "awaiting_phone_number"
 	StateAwaitingGovID          UserState = "awaiting_gov_id"
 	StateAwaitingLocation       UserState = "awaiting_location"
+	StateAwaitingIdentityDoc    UserState = "awaiting_identity_doc"
 	StateAwaitingPolicyApproval UserState = "awaiting_policy_approval"
 )
 
 // User represents a user in the system.
 type User struct {
-	ID                 uuid.UUID
-	TelegramID         int64
-	FirstName          *string // Nullable
-	LastName           *string // Nullable
-	PhoneNumber        *string // Encrypted
-	GovernmentID       *string // Encrypted
-	LocationCountry    *string // Nullable
-	VerificationStatus UserVerificationStatus
-	State              UserState
-	IsModerator        bool
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID                   uuid.UUID
+	TelegramID           int64
+	FirstName            *string // Nullable
+	LastName             *string // Nullable
+	PhoneNumber          *string // Encrypted
+	GovernmentID         *string // Encrypted
+	LocationCountry      *string // Nullable
+	VerificationStatus   UserVerificationStatus
+	State                UserState
+	VerificationStrategy *string // Nullable
+	GovernmentIDPhotoID  *string // Nullable, Telegram FileID
+	IsModerator          bool
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }

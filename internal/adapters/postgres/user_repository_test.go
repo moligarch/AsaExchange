@@ -10,14 +10,6 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// Helper to clean up the DB after tests
-func cleanupTestUser(t *testing.T, id uuid.UUID) {
-	_, err := testDB.pool.Exec(context.Background(), "DELETE FROM users WHERE id = $1", id)
-	if err != nil {
-		t.Logf("Warning: Failed to cleanup user %s: %v", id, err)
-	}
-}
-
 func TestUserRepository_Create_GetByTelegramID_Roundtrip(t *testing.T) {
 	// 1. Setup
 	nopLogger := zerolog.Nop()
@@ -27,18 +19,22 @@ func TestUserRepository_Create_GetByTelegramID_Roundtrip(t *testing.T) {
 	phone := "123456789"
 	govID := "ABC-123"
 	firstName := "Test"
+	strategy := "manual"
+	photoID := "file_id_abc"
 
 	user := &domain.User{
-		ID:                 uuid.New(),
-		TelegramID:         time.Now().UnixNano(),
-		FirstName:          &firstName,
-		LastName:           func(s string) *string { return &s }("User"),
-		PhoneNumber:        &phone,
-		GovernmentID:       &govID,
-		LocationCountry:    func(s string) *string { return &s }("USA"),
-		VerificationStatus: domain.VerificationPending,
-		State:              domain.StateAwaitingLastName,
-		IsModerator:        false,
+		ID:                   uuid.New(),
+		TelegramID:           time.Now().UnixNano(),
+		FirstName:            &firstName,
+		LastName:             func(s string) *string { return &s }("User"),
+		PhoneNumber:          &phone,
+		GovernmentID:         &govID,
+		LocationCountry:      func(s string) *string { return &s }("USA"),
+		VerificationStatus:   domain.VerificationPending,
+		State:                domain.StateAwaitingLastName,
+		IsModerator:          false,
+		VerificationStrategy: &strategy,
+		GovernmentIDPhotoID:  &photoID,
 	}
 
 	// 2. Run Create
@@ -73,6 +69,12 @@ func TestUserRepository_Create_GetByTelegramID_Roundtrip(t *testing.T) {
 	if foundUser.State != user.State {
 		t.Errorf("State mismatch: got %s, want %s", foundUser.State, user.State)
 	}
+	if *foundUser.VerificationStrategy != *user.VerificationStrategy {
+		t.Errorf("VerificationStrategy mismatch: got %s, want %s", *foundUser.VerificationStrategy, *user.VerificationStrategy)
+	}
+	if *foundUser.GovernmentIDPhotoID != *user.GovernmentIDPhotoID {
+		t.Errorf("GovernmentIDPhotoID mismatch: got %s, want %s", *foundUser.GovernmentIDPhotoID, *user.GovernmentIDPhotoID)
+	}
 	t.Logf("Successfully created and retrieved user %s", user.ID)
 }
 
@@ -98,17 +100,19 @@ func TestUserRepository_Update(t *testing.T) {
 	repo := NewUserRepository(testDB, testSecSvc, &nopLogger)
 	ctx := t.Context()
 
-	user := createTestUser(t, repo)
-	defer cleanupTestUser(t, user.ID)
+	user, cleanup := createTestUser(t, repo)
+	defer cleanup()
 
 	// 2. Modify the user struct
 	newFirstName := "Moein"
 	newLastName := "Verkiani"
 	newState := domain.StateAwaitingLastName
+	newPhotoID := "file_id_xyz"
 
 	user.FirstName = &newFirstName
 	user.LastName = &newLastName
 	user.State = newState
+	user.GovernmentIDPhotoID = &newPhotoID
 
 	// 3. Run Update
 	err := repo.Update(ctx, user)
@@ -128,6 +132,9 @@ func TestUserRepository_Update(t *testing.T) {
 	if *updatedUser.LastName != newLastName {
 		t.Errorf("LastName was not updated: got %s, want %s", *updatedUser.LastName, newLastName)
 	}
+	if *updatedUser.GovernmentIDPhotoID != newPhotoID {
+		t.Errorf("GovernmentIDPhotoID was not updated: got %s, want %s", *updatedUser.GovernmentIDPhotoID, newPhotoID)
+	}
 	if updatedUser.State != newState {
 		t.Errorf("State was not updated: got %s, want %s", updatedUser.State, newState)
 	}
@@ -140,7 +147,7 @@ func TestUserRepository_Delete(t *testing.T) {
 	repo := NewUserRepository(testDB, testSecSvc, &nopLogger)
 	ctx := t.Context()
 
-	user := createTestUser(t, repo) // We don't need the cleanup func
+	user, _ := createTestUser(t, repo)
 
 	// 2. Run Delete
 	err := repo.Delete(ctx, user.ID)

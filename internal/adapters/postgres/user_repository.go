@@ -59,8 +59,9 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 	query := `
 		INSERT INTO users (
 			id, telegram_id, first_name, last_name, phone_number,
-			government_id, location_country, verification_status, user_state, is_moderator
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			government_id, location_country, verification_status, user_state, 
+			verification_strategy, government_id_photo_id, is_moderator
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 	_, err = r.db.pool.Exec(ctx, query,
 		user.ID,
@@ -72,6 +73,8 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 		user.LocationCountry,
 		user.VerificationStatus,
 		user.State,
+		user.VerificationStrategy,
+		user.GovernmentIDPhotoID, 
 		user.IsModerator,
 	)
 
@@ -97,6 +100,8 @@ func (r *userRepository) scanUser(row pgx.Row) (*domain.User, error) {
 		&user.LocationCountry,
 		&user.VerificationStatus,
 		&user.State,
+		&user.VerificationStrategy,
+		&user.GovernmentIDPhotoID, 
 		&user.IsModerator,
 		&user.CreatedAt,
 		&user.UpdatedAt,
@@ -150,7 +155,8 @@ func (r *userRepository) scanUser(row pgx.Row) (*domain.User, error) {
 // sharedQuery is the list of columns for scanning
 const userQueryCols = `
 	id, telegram_id, first_name, last_name, phone_number,
-	government_id, location_country, verification_status, user_state, is_moderator,
+	government_id, location_country, verification_status, user_state, 
+	verification_strategy, government_id_photo_id, is_moderator,
 	created_at, updated_at
 `
 
@@ -222,8 +228,10 @@ func (r *userRepository) Update(ctx context.Context, user *domain.User) error {
 			verification_status = $6,
 			user_state = $7,
 			is_moderator = $8,
+			verification_strategy = $9,
+			government_id_photo_id = $10,
 			updated_at = NOW()
-		WHERE id = $9
+		WHERE id = $11
 	`
 	cmdTag, err := r.db.pool.Exec(ctx, query,
 		user.FirstName,
@@ -234,6 +242,8 @@ func (r *userRepository) Update(ctx context.Context, user *domain.User) error {
 		user.VerificationStatus,
 		user.State,
 		user.IsModerator,
+		user.VerificationStrategy,
+		user.GovernmentIDPhotoID,
 		user.ID, // The WHERE clause
 	)
 
