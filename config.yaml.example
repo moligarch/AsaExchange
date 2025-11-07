@@ -15,8 +15,8 @@ postgres:
 bot:
   customer:
     token: "customer-bot-token"
-	  connection:
-	    mode: "pooling"
+    connection:
+      mode: "pooling"
       webhook:
         url: "https://your.domain.com"
         listen_port: 8443
@@ -38,11 +38,11 @@ bot:
 		
   moderator:
     token: "moderator-bot-token"
-	  channel_id: 0
-	  connection:
-	    mode: "pooling"
+    connection:
+      mode: "pooling"
       webhook:
         url: "https://your.domain.com"
         listen_port: 8443
       polling:
         worker_pool_size: 1
+    channel_id: 0
