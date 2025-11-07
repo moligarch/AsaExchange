@@ -12,6 +12,11 @@ type ContactInfo struct {
 	UserID      int64 // The Telegram ID of the contact
 }
 
+type PhotoInfo struct {
+	FileID   string // The tgbotapi FileID, which we will store
+	FileSize int
+}
+
 // Button represents a single button in a keyboard.
 type Button struct {
 	Text           string
@@ -35,6 +40,22 @@ type SendMessageParams struct {
 	RemoveKeyboard bool
 }
 
+// EditMessageParams holds options for editing an existing message.
+type EditMessageParams struct {
+	ChatID      int64
+	MessageID   int
+	Text        string
+	ParseMode   string
+	ReplyMarkup *ReplyMarkup // For inline keyboards
+}
+
+// AnswerCallbackParams holds options for answering a callback query.
+type AnswerCallbackParams struct {
+	CallbackQueryID string
+	Text            string // The text for the (optional) pop-up notification
+	ShowAlert       bool   // Show as a pop-up alert instead of a toast
+}
+
 // --- Bot Client Port (Outbound) ---
 
 // BotClientPort defines the interface for *sending* messages.
@@ -42,20 +63,25 @@ type SendMessageParams struct {
 type BotClientPort interface {
 	SendMessage(ctx context.Context, params SendMessageParams) error
 	SetMenuCommands(ctx context.Context, chatID int64, isAdmin bool) error
-	// We will add EditMessage, AnswerCallbackQuery, etc. here as needed
+	// EditMessageText allows us to change the text of an existing message.
+	EditMessageText(ctx context.Context, params EditMessageParams) error
+
+	AnswerCallbackQuery(ctx context.Context, params AnswerCallbackParams) error
 }
 
 // --- Bot Handler Port (Inbound) ---
 
 // BotUpdate represents a simplified, generic update.
 type BotUpdate struct {
-	MessageID    int
-	ChatID       int64
-	UserID       int64
-	Text         string
-	Command      string
-	CallbackData *string
-	Contact      *ContactInfo
+	MessageID       int
+	ChatID          int64
+	UserID          int64
+	Text            string
+	Command         string
+	CallbackQueryID string
+	CallbackData    *string
+	Contact         *ContactInfo
+	Photo           *PhotoInfo
 }
 
 // CommandHandler defines the "plugin" interface for handling bot commands.
@@ -71,11 +97,12 @@ type CallbackHandler interface {
 	// Prefix returns the prefix for the callback (e.g., "bid_")
 	Prefix() string
 	// Handle processes the callback.
-	Handle(ctx context.Context, update *BotUpdate) error
+	Handle(ctx context.Context, update *BotUpdate, user *domain.User) error
 }
 
-// TextHandler defines the interface for handling any non-command text message.
-type TextHandler interface {
-	// Handle processes the text message, using the user's state to route logic.
+// MessageHandler defines the interface
+// for handling any message that is not a command or callback.
+type MessageHandler interface {
+	// Handle processes the message, using the user's state to route logic.
 	Handle(ctx context.Context, update *BotUpdate, user *domain.User) error
 }

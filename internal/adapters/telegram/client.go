@@ -104,3 +104,44 @@ func (c *tgClient) SetMenuCommands(ctx context.Context, chatID int64, isAdmin bo
 	}
 	return nil
 }
+
+// EditMessageText edits an existing message (usually for inline keyboards).
+func (c *tgClient) EditMessageText(ctx context.Context, params ports.EditMessageParams) error {
+	// Create the edit message config
+	msg := tgbotapi.NewEditMessageText(
+		params.ChatID,
+		params.MessageID,
+		params.Text,
+	)
+	msg.ParseMode = params.ParseMode
+
+	// Add new inline keyboard if one is provided
+	if params.ReplyMarkup != nil && params.ReplyMarkup.IsInline {
+		inlineMarkup := c.buildInlineKeyboard(params.ReplyMarkup.Buttons)
+		msg.ReplyMarkup = &inlineMarkup
+	}
+
+	// Send the request
+	if _, err := c.api.Send(msg); err != nil {
+		c.log.Error().Err(err).
+			Int64("chat_id", params.ChatID).
+			Int("message_id", params.MessageID).
+			Msg("Failed to edit message text")
+		return err
+	}
+	return nil
+}
+
+// AnswerCallbackQuery sends a response to a callback query (stops the spinner)
+func (c *tgClient) AnswerCallbackQuery(ctx context.Context, params ports.AnswerCallbackParams) error {
+	callbackConfig := tgbotapi.NewCallback(params.CallbackQueryID, params.Text)
+	callbackConfig.ShowAlert = params.ShowAlert
+
+	if _, err := c.api.Request(callbackConfig); err != nil {
+		c.log.Error().Err(err).
+			Str("callback_query_id", params.CallbackQueryID).
+			Msg("Failed to answer callback query")
+		return err
+	}
+	return nil
+}
