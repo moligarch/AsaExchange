@@ -13,17 +13,36 @@ postgres:
 
 # Bot configuration
 bot:
-  # Secrets
-  token: "your_customer_bot_token_here"
-  mod_token: "your_moderator_bot_token_here"
-  channel_id: 0
-  mode: "polling"
-  
-  # Webhook settings
-  webhook:
-    url: "https://your.domain.com"
-    listen_port: 8443
-    
-  # Polling settings
-  polling:
-    worker_pool_size: 10
+  customer:
+    token: "customer-bot-token"
+	  connection:
+	    mode: "pooling"
+      webhook:
+        url: "https://your.domain.com"
+        listen_port: 8443
+      polling:
+        worker_pool_size: 5
+    country_strategies:
+      IRN:
+        title: "🇮🇷 Iran"
+        strategy: "dolate_man" # Future
+      DEU:
+        title: "🇩🇪 Germany"
+        strategy: "manual"
+      FRA:
+        title: "🇫🇷 France"
+        strategy: "manual"
+      ITA:
+        title: "🇮🇹 Italy"
+        strategy: "manual"
+		
+  moderator:
+    token: "moderator-bot-token"
+	  channel_id: 0
+	  connection:
+	    mode: "pooling"
+      webhook:
+        url: "https://your.domain.com"
+        listen_port: 8443
+      polling:
+        worker_pool_size: 1
