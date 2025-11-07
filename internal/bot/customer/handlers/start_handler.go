@@ -1,10 +1,11 @@
 package handlers
 
 import (
-	"AsaExchange/internal/bot"
+	"AsaExchange/internal/bot/customer"
 	"AsaExchange/internal/bot/messages"
 	"AsaExchange/internal/core/domain"
 	"AsaExchange/internal/core/ports"
+	"AsaExchange/internal/shared/config"
 	"context"
 	"fmt"
 
@@ -13,26 +14,29 @@ import (
 )
 
 func init() {
-	bot.RegisterCommand(NewStartHandler)
+	customer.RegisterCommand(NewStartHandler)
 }
 
 // startHandler is the plugin for the /start command.
 type startHandler struct {
-	log      zerolog.Logger
-	userRepo ports.UserRepository
-	bot      ports.BotClientPort
+	log               zerolog.Logger
+	userRepo          ports.UserRepository
+	bot               ports.BotClientPort
+	countryStrategies map[string]config.CountryConfig
 }
 
 // NewStartHandler creates a new handler for the /start command.
 func NewStartHandler(
+	cfg *config.Config,
 	userRepo ports.UserRepository,
 	bot ports.BotClientPort,
 	baseLogger *zerolog.Logger,
 ) ports.CommandHandler {
 	return &startHandler{
-		log:      baseLogger.With().Str("component", "start_handler").Logger(),
-		userRepo: userRepo,
-		bot:      bot,
+		log:               baseLogger.With().Str("component", "start_handler").Logger(),
+		userRepo:          userRepo,
+		bot:               bot,
+		countryStrategies: cfg.Bot.Customer.CountryStrategies,
 	}
 }
 
@@ -50,8 +54,7 @@ func (h *startHandler) Handle(ctx context.Context, update *ports.BotUpdate) erro
 	user, err := h.userRepo.GetByTelegramID(ctx, update.UserID)
 	if err != nil {
 		ctxLogger.Error().Err(err).Msg("Failed to get user from repository")
-		h.sendErrorMessage(ctx, update.ChatID)
-		return err
+		return h.sendErrorMessage(ctx, update.ChatID)
 	}
 
 	// 2. Handle the user based on their status
@@ -64,11 +67,8 @@ func (h *startHandler) Handle(ctx context.Context, update *ports.BotUpdate) erro
 		newUser := &domain.User{
 			ID:                 uuid.New(),
 			TelegramID:         update.UserID,
-			FirstName:          nil,
-			LastName:           nil,
 			VerificationStatus: domain.VerificationPending,
 			State:              domain.StateAwaitingFirstName,
-			IsModerator:        false,
 		}
 
 		if err := h.userRepo.Create(ctx, newUser); err != nil {
@@ -95,18 +95,28 @@ func (h *startHandler) Handle(ctx context.Context, update *ports.BotUpdate) erro
 				responseText = "Please reply with your *legal First Name* as it appears on your ID\\."
 			case domain.StateAwaitingLastName:
 				responseText = "Please reply with your *legal Last Name* as it appears on your ID\\."
-			case domain.StateAwaitingGovID:
-				responseText = "Please reply with your *Government ID / National ID Number*\\."
-			// Add other states (phone, gov_id) here later
 			case domain.StateAwaitingPhoneNumber:
 				msg = messages.NewBuilder(update.ChatID).
 					WithText("Please share your *Phone Number* by pressing the button below\\.").
 					WithContactButton("Share My Phone Number").
 					Build()
-			case domain.StateAwaitingLocation, domain.StateAwaitingPolicyApproval:
-				responseText = "Your registration is in progress\\. Please follow the instructions\\."
-				msg = messages.NewBuilder(update.ChatID).WithText(responseText).WithRemoveKeyboard().Build()
-			case domain.StateNone:
+			case domain.StateAwaitingGovID:
+				responseText = "Please reply with your *Government ID / National ID Number*\\."
+			case domain.StateAwaitingLocation:
+				var countryButtons []string
+				for title := range h.countryStrategies {
+					countryButtons = append(countryButtons, title)
+				}
+				msg = messages.NewBuilder(update.ChatID).
+					WithText("Please select your *Country of Residence* from the list\\.").
+					WithReplyButtons(countryButtons, 2).
+					Build()
+				return h.bot.SendMessage(ctx, msg)
+			case domain.StateAwaitingIdentityDoc:
+				responseText = "Please upload a *single, clear photo* of your Government ID or Passport\\."
+			case domain.StateAwaitingPolicyApproval:
+				responseText = "Please review our terms of service and *accept or decline* the policy\\."
+			default:
 				if user.FirstName != nil {
 					responseText = fmt.Sprintf(
 						"Hello, %s\\. Your account is still *pending verification*\\. Please wait for an admin to approve your identity\\.",
@@ -115,15 +125,26 @@ func (h *startHandler) Handle(ctx context.Context, update *ports.BotUpdate) erro
 				} else {
 					responseText = "Your account is still *pending verification*\\. Please wait\\."
 				}
-				msg = messages.NewBuilder(update.ChatID).WithText(responseText).WithRemoveKeyboard().Build()
-			default:
-				responseText = "Your account is still *pending verification*\\. Please wait\\."
-				msg = messages.NewBuilder(update.ChatID).WithText(responseText).WithRemoveKeyboard().Build()
 			}
 
 		case domain.VerificationRejected:
-			responseText = "There was an issue with your identity verification\\. Please contact support\\."
-			msg = messages.NewBuilder(update.ChatID).WithText(responseText).WithRemoveKeyboard().Build()
+			ctxLogger.Info().Msg("User is 'rejected'. Resetting state for re-registration.")
+			user.State = domain.StateAwaitingFirstName
+			user.VerificationStatus = domain.VerificationPending
+			user.FirstName = nil
+			user.LastName = nil
+			user.PhoneNumber = nil
+			user.GovernmentID = nil
+			user.GovernmentIDPhotoID = nil
+			user.LocationCountry = nil
+			
+			if err := h.userRepo.Update(ctx, user); err != nil {
+				ctxLogger.Error().Err(err).Msg("Failed to reset user state for re-registration")
+				return h.sendErrorMessage(ctx, update.ChatID)
+			}
+			
+			responseText = "Your previous registration was rejected\\.\n\nYou may try again\\. Please reply with your *legal First Name*\\."
+		
 		case domain.VerificationLevel1:
 			responseText = fmt.Sprintf(
 				"👋 Welcome back, %s\\! Use the menu to get started\\.",

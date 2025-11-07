@@ -1,10 +1,11 @@
 package handlers
 
 import (
-	"AsaExchange/internal/bot"
+	"AsaExchange/internal/bot/customer"
 	"AsaExchange/internal/bot/messages"
 	"AsaExchange/internal/core/domain"
 	"AsaExchange/internal/core/ports"
+	"AsaExchange/internal/shared/config"
 	"context"
 	"fmt"
 	"regexp"
@@ -13,47 +14,31 @@ import (
 )
 
 func init() {
-	bot.RegisterText(NewRegistrationHandler)
+	customer.RegisterMessage(NewRegistrationHandler)
 }
 
 var phoneRegex = regexp.MustCompile(`^\+?[0-9]{9,15}$`)
 
-// We map the button text (with emoji) to the ISO 3166-1 alpha-3 code
-// that we store in the database.
-var supportedCountries = map[string]string{
-	"🇮🇷 Iran":    "IRN",
-	"🇩🇪 Germany": "DEU",
-	"🇫🇷 France":  "FRA",
-	"🇮🇹 Italy":   "ITA",
-}
-
-// getCountryButtonTexts is a helper to get just the keys
-func getCountryButtonTexts() []string {
-	keys := make([]string, 0, len(supportedCountries))
-	for k := range supportedCountries {
-		keys = append(keys, k)
-	}
-	// You could sort them here if needed
-	return keys
-}
-
 // registrationHandler
 type registrationHandler struct {
-	log      zerolog.Logger
-	userRepo ports.UserRepository
-	bot      ports.BotClientPort
+	log               zerolog.Logger
+	userRepo          ports.UserRepository
+	bot               ports.BotClientPort
+	countryStrategies map[string]config.CountryConfig
 }
 
 // NewRegistrationHandler
 func NewRegistrationHandler(
+	cfg *config.Config,
 	userRepo ports.UserRepository,
 	bot ports.BotClientPort,
 	baseLogger *zerolog.Logger,
-) ports.TextHandler {
+) ports.MessageHandler {
 	return &registrationHandler{
-		log:      baseLogger.With().Str("component", "reg_handler").Logger(),
-		userRepo: userRepo,
-		bot:      bot,
+		log:               baseLogger.With().Str("component", "reg_handler").Logger(),
+		userRepo:          userRepo,
+		bot:               bot,
+		countryStrategies: cfg.Bot.Customer.CountryStrategies,
 	}
 }
 
@@ -73,7 +58,10 @@ func (h *registrationHandler) Handle(ctx context.Context, update *ports.BotUpdat
 		return h.handleGovID(ctx, update, user)
 	case domain.StateAwaitingLocation:
 		return h.handleLocation(ctx, update, user)
-	// Add new states here as we build them
+	case domain.StateAwaitingIdentityDoc:
+		return h.handleIdentityDoc(ctx, update, user)
+	case domain.StateAwaitingPolicyApproval:
+		return h.handlePolicyApproval(ctx, update, user)
 
 	default:
 		// User is in a state we don't handle (e.g., "none")
@@ -88,7 +76,9 @@ func (h *registrationHandler) handleFirstName(ctx context.Context, update *ports
 	log := h.log.With().Str("user_id", user.ID.String()).Logger()
 
 	if update.Contact != nil {
-		msg := messages.NewBuilder(update.ChatID).WithText("Please reply with your First Name as text.").Build()
+		msg := messages.NewBuilder(update.ChatID).
+		WithText("Please reply with your First Name as text.").
+		WithParseMode("").Build()
 		return h.bot.SendMessage(ctx, msg)
 	}
 
@@ -98,8 +88,7 @@ func (h *registrationHandler) handleFirstName(ctx context.Context, update *ports
 	if len(firstName) < 2 || len(firstName) > 50 {
 		msg := messages.NewBuilder(update.ChatID).
 			WithText("Invalid first name. Please enter a name between 2 and 50 characters.").
-			WithParseMode("").
-			Build()
+			WithParseMode("").Build()
 		return h.bot.SendMessage(ctx, msg)
 	}
 
@@ -111,7 +100,7 @@ func (h *registrationHandler) handleFirstName(ctx context.Context, update *ports
 	log.Info().Str("first_name", firstName).Msg("Updating user's first name and state")
 	if err := h.userRepo.Update(ctx, user); err != nil {
 		log.Error().Err(err).Msg("Failed to update user")
-		return h.sendErrorMessage(ctx, update.ChatID)
+		return h.sendErrorMessage(ctx, update.ChatID, "An internal error occurred.")
 	}
 
 	// 3. Ask for the next piece of information
@@ -153,7 +142,7 @@ func (h *registrationHandler) handleLastName(ctx context.Context, update *ports.
 	log.Info().Str("last_name", lastName).Msg("Updating user's last name and state")
 	if err := h.userRepo.Update(ctx, user); err != nil {
 		log.Error().Err(err).Msg("Failed to update user")
-		return h.sendErrorMessage(ctx, update.ChatID)
+		return h.sendErrorMessage(ctx, update.ChatID, "An internal error occurred.")
 	}
 
 	// 3. Ask for the next piece of information
@@ -199,10 +188,10 @@ func (h *registrationHandler) handlePhoneNumber(ctx context.Context, update *por
 	user.PhoneNumber = &phoneNumber
 	user.State = domain.StateAwaitingGovID
 
-	log.Info().Msg("Updating user's phone number and state")
+	log.Info().Str("phone", phoneNumber).Msg("Updating user's phone number and state")
 	if err := h.userRepo.Update(ctx, user); err != nil {
 		log.Error().Err(err).Msg("Failed to update user")
-		return h.sendErrorMessage(ctx, update.ChatID)
+		return h.sendErrorMessage(ctx, update.ChatID, "An internal error occurred.")
 	}
 
 	// Use the builder to remove the keyboard and ask the next question
@@ -218,8 +207,8 @@ func (h *registrationHandler) handlePhoneNumber(ctx context.Context, update *por
 func (h *registrationHandler) handleGovID(ctx context.Context, update *ports.BotUpdate, user *domain.User) error {
 	log := h.log.With().Str("user_id", user.ID.String()).Logger()
 
-	if update.Contact != nil {
-		return h.sendErrorMessage(ctx, update.ChatID)
+	if update.Contact != nil || update.Photo != nil {
+		return h.sendErrorMessage(ctx, update.ChatID, "Please reply with your Government ID as text.")
 	}
 
 	govID := update.Text
@@ -240,16 +229,21 @@ func (h *registrationHandler) handleGovID(ctx context.Context, update *ports.Bot
 	log.Info().Msg("Updating user's government ID and state")
 	if err := h.userRepo.Update(ctx, user); err != nil {
 		log.Error().Err(err).Msg("Failed to update user")
-		return h.sendErrorMessage(ctx, update.ChatID)
+		return h.sendErrorMessage(ctx, update.ChatID, "An internal error occurred.")
 	}
 
 	// 3. Ask for the next piece of information
+	// Use the config to build buttons
+	var countryButtons []string
+	for _, conf := range h.countryStrategies {
+		countryButtons = append(countryButtons, conf.Title)
+	}
 	msg := messages.NewBuilder(update.ChatID).
 		WithText(fmt.Sprintf(
 			"Thank you, %s\\.\n\nYour registration is almost complete\\. Please select your *Country of Residence* from the list below\\.",
 			*user.FirstName,
 		)).
-		WithReplyButtons(getCountryButtonTexts(), 2). // Build a 2-column grid
+		WithReplyButtons(countryButtons, 2). // Build a 2-column grid
 		Build()
 
 	return h.bot.SendMessage(ctx, msg)
@@ -262,47 +256,126 @@ func (h *registrationHandler) handleLocation(ctx context.Context, update *ports.
 	countryChoice := update.Text
 
 	// 1. Validate the choice
-	isoCode, ok := supportedCountries[countryChoice]
+	var isoKey string
+	var countryConfig config.CountryConfig
+	var ok bool
+
+	// Find the key by the value
+	for key, conf := range h.countryStrategies {
+		if conf.Title == countryChoice {
+			isoKey = key
+			countryConfig = conf
+			ok = true
+			break
+		}
+	}
+
 	if !ok {
 		// User typed something, or a country we don't support.
 		log.Warn().Str("choice", countryChoice).Msg("User selected an unsupported country")
 
+		var countryButtons []string
+		for _, conf := range h.countryStrategies {
+			countryButtons = append(countryButtons, conf.Title)
+		}
+
 		msg := messages.NewBuilder(update.ChatID).
 			WithText(fmt.Sprintf(
-				"`%s` is not a supported country\\. Please select one from the list.",
+				"`%s` is not a supported country\\. Please select one from the list\\.",
 				countryChoice,
 			)).
-			WithReplyButtons(getCountryButtonTexts(), 2). // Re-send the buttons
+			WithReplyButtons(countryButtons, 2).
 			Build()
 		return h.bot.SendMessage(ctx, msg)
 	}
 
 	// 2. Update the user
-	user.LocationCountry = &isoCode
-	user.State = domain.StateNone // Registration flow is complete
+	user.LocationCountry = &isoKey
+	user.VerificationStrategy = &countryConfig.Strategy
+	user.State = domain.StateAwaitingIdentityDoc
 
-	log.Info().Str("country", isoCode).Msg("Updating user's location and completing registration")
+	log.Info().Str("country", isoKey).Str("strategy", countryConfig.Strategy).Msg("Updating user's location and strategy")
 	if err := h.userRepo.Update(ctx, user); err != nil {
 		log.Error().Err(err).Msg("Failed to update user")
-		return h.sendErrorMessage(ctx, update.ChatID)
+		return h.sendErrorMessage(ctx, update.ChatID, "An internal error occurred.")
 	}
 
-	// 3. Send final confirmation and remove keyboard
+	// 3. Send next step (ask for photo)
 	msg := messages.NewBuilder(update.ChatID).
-		WithText(fmt.Sprintf(
-			"✅ *Registration Complete\\!*\n\nThank you, %s\\. Your account is now submitted and *pending admin verification*\\.\n\nWe will notify you as soon as you are approved to make transactions\\.",
-			*user.FirstName,
-		)).
-		WithRemoveKeyboard().
+		WithText(
+			"Thank you\\. As the next step, please upload a *single, clear photo* of your Government ID or Passport\\.\n\nThis photo will be reviewed by an admin to verify your identity\\.",
+		).
+		WithRemoveKeyboard(). // Remove the country buttons
+		Build()
+
+	return h.bot.SendMessage(ctx, msg)
+}
+
+func (h *registrationHandler) handleIdentityDoc(ctx context.Context, update *ports.BotUpdate, user *domain.User) error {
+	log := h.log.With().Str("user_id", user.ID.String()).Logger()
+
+	// 1. Validate that it's a photo
+	if update.Photo == nil {
+		msg := messages.NewBuilder(update.ChatID).
+			WithText("Please upload a *photo* of your ID, not text\\.").
+			Build()
+		return h.bot.SendMessage(ctx, msg)
+	}
+
+	// 2. Get the FileID
+	fileID := update.Photo.FileID
+
+	// 3. Update the user
+	user.GovernmentIDPhotoID = &fileID
+	user.State = domain.StateAwaitingPolicyApproval // <-- Set to next state
+
+	log.Info().Str("file_id", fileID).Msg("Updating user's photo ID and moving to policy approval")
+	if err := h.userRepo.Update(ctx, user); err != nil {
+		log.Error().Err(err).Msg("Failed to update user")
+		return h.sendErrorMessage(ctx, update.ChatID, "An internal error occurred.")
+	}
+
+	// 4. Send the policy message with inline buttons
+	policyText := "Please review our terms of service and privacy policy\\.\n\n[Link to Policy](https://example.com/terms)\n\nDo you accept these terms\\?"
+
+	msg := messages.NewBuilder(update.ChatID).
+		WithText(policyText).
+		WithInlineButtons([][]ports.Button{
+			{
+				{Text: "✅ I Accept", Data: "policy_accept"},
+				{Text: "❌ I Decline", Data: "policy_decline"},
+			},
+		}).
+		Build()
+
+	return h.bot.SendMessage(ctx, msg)
+}
+
+// handlePolicyApproval handles text replies when user should be pressing buttons.
+func (h *registrationHandler) handlePolicyApproval(ctx context.Context, update *ports.BotUpdate, user *domain.User) error {
+	log := h.log.With().Str("user_id", user.ID.String()).Logger()
+	log.Warn().Msg("User sent text instead of pressing policy buttons")
+
+	// Re-send the policy message
+	policyText := "Please accept or decline the policy by pressing the buttons below\\.\n\n[Link to Policy](https://example.com/terms)\n\nDo you accept these terms\\?"
+
+	msg := messages.NewBuilder(update.ChatID).
+		WithText(policyText).
+		WithInlineButtons([][]ports.Button{
+			{
+				{Text: "✅ I Accept", Data: "policy_accept"},
+				{Text: "❌ I Decline", Data: "policy_decline"},
+			},
+		}).
 		Build()
 
 	return h.bot.SendMessage(ctx, msg)
 }
 
 // sendErrorMessage is a helper to send a generic error
-func (h *registrationHandler) sendErrorMessage(ctx context.Context, chatID int64) error {
+func (h *registrationHandler) sendErrorMessage(ctx context.Context, chatID int64, message string) error {
 	msgParams := messages.NewBuilder(chatID).
-		WithText("An internal error occurred. Please try again later.").
-		WithParseMode("").Build() // Plain text error
+		WithText(message).
+		WithParseMode("").Build()
 	return h.bot.SendMessage(ctx, msgParams)
 }

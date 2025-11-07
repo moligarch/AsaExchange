@@ -1,4 +1,4 @@
-package telegram
+package customer
 
 import (
 	"AsaExchange/internal/core/domain"
@@ -71,8 +71,8 @@ func (m *MockCallbackHandler) Prefix() string {
 	args := m.Called()
 	return args.String(0)
 }
-func (m *MockCallbackHandler) Handle(ctx context.Context, update *ports.BotUpdate) error {
-	args := m.Called()
+func (m *MockCallbackHandler) Handle(ctx context.Context, update *ports.BotUpdate, user *domain.User) error {
+	args := m.Called(ctx, update, user)
 	return args.Error(0)
 }
 
@@ -80,12 +80,32 @@ func (m *MockCallbackHandler) Handle(ctx context.Context, update *ports.BotUpdat
 type MockBotClient struct {
 	mock.Mock
 }
+
 func (m *MockBotClient) SendMessage(ctx context.Context, params ports.SendMessageParams) error {
 	args := m.Called(ctx, params)
 	return args.Error(0)
 }
 func (m *MockBotClient) SetMenuCommands(ctx context.Context, chatID int64, isAdmin bool) error {
 	args := m.Called(ctx, chatID, isAdmin)
+	return args.Error(0)
+}
+func (m *MockBotClient) EditMessageText(ctx context.Context, params ports.EditMessageParams) error {
+	args := m.Called(ctx, params)
+	return args.Error(0)
+}
+
+func (m *MockBotClient) AnswerCallbackQuery(ctx context.Context, params ports.AnswerCallbackParams) error {
+	args := m.Called(ctx, params)
+	return args.Error(0)
+}
+
+// MockMessageHandler is a mock "plugin" for text
+type MockMessageHandler struct {
+	mock.Mock
+}
+
+func (m *MockMessageHandler) Handle(ctx context.Context, update *ports.BotUpdate, user *domain.User) error {
+	args := m.Called(ctx, update, user)
 	return args.Error(0)
 }
 
@@ -98,7 +118,7 @@ func TestRouter_HandleUpdate_Command(t *testing.T) {
 	mockUserRepo := new(MockUserRepository)
 	mockBotClient := new(MockBotClient)
 
-	router := NewRouter(mockUserRepo, mockBotClient, &nopLogger)
+	router := NewCustomerRouter(mockUserRepo, mockBotClient, &nopLogger)
 
 	// Create a mock handler for /start
 	startHandler := new(MockCommandHandler)
@@ -127,10 +147,16 @@ func TestRouter_HandleUpdate_Command(t *testing.T) {
 		},
 	}
 
-	// 4. Run the handler
+	// 4. We MUST add an expectation for the GetByTelegramID call
+	// which happens *before* the command is routed.
+	// For /start, the user might be nil, which is fine.
+	mockUserRepo.On("GetByTelegramID", mock.Anything, int64(789)).Return(nil, nil).Once()
+
+	// 5. Run the handler
 	router.HandleUpdate(ctx, fakeUpdate)
 
-	// 5. Assert expectations
+	// 6. Assert expectations
+	mockUserRepo.AssertExpectations(t)
 	startHandler.AssertExpectations(t)
 	helpHandler.AssertNotCalled(t, "Handle")
 }
@@ -141,22 +167,23 @@ func TestRouter_HandleUpdate_Callback(t *testing.T) {
 	nopLogger := zerolog.Nop()
 	mockUserRepo := new(MockUserRepository)
 	mockBotClient := new(MockBotClient)
-	router := NewRouter(mockUserRepo, mockBotClient, &nopLogger)
+
+	router := NewCustomerRouter(mockUserRepo, mockBotClient, &nopLogger)
+
+	// Create a mock User (callbacks require an existing user)
+	testUser := &domain.User{ID: uuid.New(), State: domain.StateAwaitingPolicyApproval}
 
 	// Create mock handlers
-	bidHandler := new(MockCallbackHandler)
-	bidHandler.On("Prefix").Return("bid_")
-	bidHandler.On("Handle").Return(nil).Once()
-
-	cancelHandler := new(MockCallbackHandler)
-	cancelHandler.On("Prefix").Return("cancel_")
+	policyHandler := new(MockCallbackHandler)
+	policyHandler.On("Prefix").Return("policy_")
+	// We must now expect the user object
+	policyHandler.On("Handle", mock.Anything, mock.AnythingOfType("*ports.BotUpdate"), testUser).Return(nil).Once()
 
 	// 2. Register handlers
-	router.RegisterCallbackHandler(bidHandler)
-	router.RegisterCallbackHandler(cancelHandler)
+	router.RegisterCallbackHandler(policyHandler)
 
 	// 3. Create a fake Telegram update
-	callbackData := "bid_123-abc"
+	callbackData := "policy_accept"
 	fakeUpdate := &tgbotapi.Update{
 		UpdateID: 124,
 		CallbackQuery: &tgbotapi.CallbackQuery{
@@ -170,12 +197,98 @@ func TestRouter_HandleUpdate_Callback(t *testing.T) {
 		},
 	}
 
+	// 4. We MUST add an expectation for the GetByTelegramID call
+	mockUserRepo.On("GetByTelegramID", mock.Anything, int64(789)).Return(testUser, nil).Once()
+
+	// 5. Run the handler
+	router.HandleUpdate(ctx, fakeUpdate)
+
+	// 6. Assert expectations
+	mockUserRepo.AssertExpectations(t)
+	policyHandler.AssertExpectations(t)
+}
+
+// TestRouter_HandleUpdate_Text_NewUser
+func TestRouter_HandleUpdate_Text_NewUser(t *testing.T) {
+	// 1. Setup
+	ctx := context.Background()
+	nopLogger := zerolog.Nop()
+	mockUserRepo := new(MockUserRepository)
+	mockBotClient := new(MockBotClient)
+
+	router := NewCustomerRouter(mockUserRepo, mockBotClient, &nopLogger)
+
+	// 2. Create a fake Telegram update
+	fakeUpdate := &tgbotapi.Update{
+		UpdateID: 123,
+		Message: &tgbotapi.Message{
+			MessageID: 456,
+			From:      &tgbotapi.User{ID: 789, UserName: "testuser"},
+			Chat:      &tgbotapi.Chat{ID: 1000},
+			Text:      "hello world", // Not a command
+		},
+	}
+
+	// 3. Define Expectations
+	// We expect the router to fetch the user and find nil
+	mockUserRepo.On("GetByTelegramID", mock.Anything, int64(789)).Return(nil, nil).Once()
+	// We expect the router to send a "please /start" message
+	mockBotClient.On("SendMessage", mock.Anything, mock.AnythingOfType("ports.SendMessageParams")).Return(nil).Once()
+
 	// 4. Run the handler
 	router.HandleUpdate(ctx, fakeUpdate)
 
-	// 5. Assert expectations
-	bidHandler.AssertExpectations(t)
-	cancelHandler.AssertNotCalled(t, "Handle")
+	// 5. Assert
+	mockUserRepo.AssertExpectations(t)
+	mockBotClient.AssertExpectations(t)
+}
+
+func TestRouter_HandleUpdate_StateRouting(t *testing.T) {
+	// Tests that a text message from a known user is correctly routed to the MessageHandler
+
+	// 1. Setup
+	ctx := context.Background()
+	nopLogger := zerolog.Nop()
+	mockUserRepo := new(MockUserRepository)
+	mockBotClient := new(MockBotClient)
+
+	router := NewCustomerRouter(mockUserRepo, mockBotClient, &nopLogger)
+
+	// Create and register the mock MessageHandler
+	messageHandler := new(MockMessageHandler)
+	router.SetMessageHandler(messageHandler)
+
+	// 2. Create a fake User
+	testUser := &domain.User{
+		ID:    uuid.New(),
+		State: domain.StateAwaitingFirstName, // User is in a state
+	}
+
+	// 3. Create a fake Telegram update
+	fakeUpdate := &tgbotapi.Update{
+		UpdateID: 123,
+		Message: &tgbotapi.Message{
+			MessageID: 456,
+			From:      &tgbotapi.User{ID: 789, UserName: "testuser"},
+			Chat:      &tgbotapi.Chat{ID: 1000},
+			Text:      "Moein", // The user's first name
+		},
+	}
+
+	// 4. Define Expectations
+	// We expect the router to fetch the user
+	mockUserRepo.On("GetByTelegramID", mock.Anything, int64(789)).Return(testUser, nil).Once()
+	// We expect the router to call the MessageHandler
+	messageHandler.On("Handle", mock.Anything, mock.AnythingOfType("*ports.BotUpdate"), testUser).Return(nil).Once()
+
+	// 5. Run the handler
+	router.HandleUpdate(ctx, fakeUpdate)
+
+	// 6. Assert
+	mockUserRepo.AssertExpectations(t)
+	messageHandler.AssertExpectations(t)
+	// We assert the botClient was *not* called by the router
+	mockBotClient.AssertNotCalled(t, "SendMessage", mock.Anything, mock.Anything)
 }
 
 func TestRouter_HandleUpdate_UnhandledText(t *testing.T) {
@@ -184,7 +297,7 @@ func TestRouter_HandleUpdate_UnhandledText(t *testing.T) {
 	nopLogger := zerolog.Nop() // Logs are discarded
 	mockUserRepo := new(MockUserRepository)
 	mockBotClient := new(MockBotClient)
-	router := NewRouter(mockUserRepo, mockBotClient, &nopLogger)
+	router := NewCustomerRouter(mockUserRepo, mockBotClient, &nopLogger)
 
 	// 2. Create a fake Telegram update
 	fakeUpdate := &tgbotapi.Update{
@@ -203,7 +316,7 @@ func TestRouter_HandleUpdate_UnhandledText(t *testing.T) {
 	mockBotClient.On("SendMessage", mock.Anything, mock.Anything).Return(nil).Once()
 	// 4. Run the handler
 	router.HandleUpdate(ctx, fakeUpdate)
-	
+
 	// 5. Assert
 	mockUserRepo.AssertExpectations(t)
 	mockBotClient.AssertExpectations(t)

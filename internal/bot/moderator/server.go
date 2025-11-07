@@ -1,60 +1,57 @@
-package telegram
+package moderator
 
 import (
 	"AsaExchange/internal/shared/config"
 	"context"
 	"fmt"
-	"net/http" // <-- IMPORTED
+	"net/http"
 	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/rs/zerolog"
 )
 
-// BotServer is responsible for running the bot (polling or webhook)
-type BotServer struct {
+// ModeratorServer is responsible for running the moderator bot
+type ModeratorServer struct {
 	api    *tgbotapi.BotAPI
-	router *Router
-	cfg    *config.BotConfig
+	router *ModeratorRouter
+	cfg    *config.BotConnectionConfig // Use the same connection config struct
 	log    zerolog.Logger
 }
 
-// NewBotServer creates a new server instance
-func NewBotServer(
+// NewModeratorServer creates a new server instance
+func NewModeratorServer(
 	api *tgbotapi.BotAPI,
-	router *Router,
-	cfg *config.BotConfig,
+	router *ModeratorRouter,
+	cfg *config.BotConnectionConfig,
 	baseLogger *zerolog.Logger,
-) *BotServer {
-	return &BotServer{
+) *ModeratorServer {
+	return &ModeratorServer{
 		api:    api,
 		router: router,
 		cfg:    cfg,
-		log:    baseLogger.With().Str("component", "bot_server").Logger(),
+		log:    baseLogger.With().Str("component", "moderator_server").Logger(),
 	}
 }
 
 // Start begins the bot server based on the config mode
-func (s *BotServer) Start(ctx context.Context) error {
-	s.log.Info().Str("mode", s.cfg.Mode).Msg("Starting bot server...")
+func (s *ModeratorServer) Start(ctx context.Context) error {
+	s.log.Info().Str("mode", s.cfg.Mode).Msg("Starting moderator server...")
 
 	switch s.cfg.Mode {
 	case "polling":
-		// startPolling will block until the context is cancelled
 		return s.startPolling(ctx)
 	case "webhook":
-		// startWebhook will block until the context is cancelled
 		return s.startWebhook(ctx)
 	default:
 		return fmt.Errorf("unknown bot mode: %s", s.cfg.Mode)
 	}
 }
 
-// startPolling starts the bot in long polling mode with a worker pool
-func (s *BotServer) startPolling(ctx context.Context) error {
+// startPolling (Identical to customer server)
+func (s *ModeratorServer) startPolling(ctx context.Context) error {
 	s.log.Info().Int("workers", s.cfg.Polling.WorkerPoolSize).Msg("Starting bot in POLLING mode")
 
-	// 1. Clear any existing webhook
 	deleteWebhookConfig := tgbotapi.DeleteWebhookConfig{
 		DropPendingUpdates: false,
 	}
@@ -64,26 +61,22 @@ func (s *BotServer) startPolling(ctx context.Context) error {
 		s.log.Info().Msg("Webhook deleted successfully")
 	}
 
-	// 2. Create the channel for updates
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 	updates := s.api.GetUpdatesChan(u)
 
-	// 3. Create the job channel
-	jobs := make(chan tgbotapi.Update, 100) // Buffered channel
+	jobs := make(chan tgbotapi.Update, 100)
 
-	// 4. Start the worker pool
 	var wg sync.WaitGroup
 	for w := 1; w <= s.cfg.Polling.WorkerPoolSize; w++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			// Get the router's logger and add worker ID
 			log := s.router.log.With().Int("worker_id", id).Logger()
 			log.Info().Msg("Starting polling worker")
 			for {
 				select {
-				case <-ctx.Done(): // Context cancelled
+				case <-ctx.Done():
 					log.Info().Msg("Stopping polling worker (context done)")
 					return
 				case job, ok := <-jobs:
@@ -91,7 +84,6 @@ func (s *BotServer) startPolling(ctx context.Context) error {
 						log.Info().Msg("Stopping polling worker (channel closed)")
 						return
 					}
-					// Process the update
 					s.router.HandleUpdate(context.Background(), &job)
 				}
 			}
@@ -100,30 +92,27 @@ func (s *BotServer) startPolling(ctx context.Context) error {
 
 	s.log.Info().Msg("Polling update listener started")
 
-	// 5. Main loop: Listen for updates and dispatch jobs
 	for {
 		select {
-		case <-ctx.Done(): // Shutdown signal received
-			close(jobs)                  // Close the jobs channel to signal workers
-			s.api.StopReceivingUpdates() // Stop the bot API
-			wg.Wait()                    // Wait for all workers to finish
+		case <-ctx.Done():
+			close(jobs)
+			s.api.StopReceivingUpdates()
+			wg.Wait()
 			s.log.Info().Msg("Polling stopped gracefully")
-			return nil // Return nil on graceful shutdown
+			return nil
 		case update := <-updates:
-			// Send the update to the worker pool
 			jobs <- update
 		}
 	}
 }
 
-// startWebhook starts the bot in webhook mode (for production)
-func (s *BotServer) startWebhook(ctx context.Context) error {
+// startWebhook (Identical to customer server)
+func (s *ModeratorServer) startWebhook(ctx context.Context) error {
 	s.log.Info().
 		Int("port", s.cfg.Webhook.ListenPort).
-		Int("workers", s.cfg.Polling.WorkerPoolSize). // We reuse the worker pool size
+		Int("workers", s.cfg.Polling.WorkerPoolSize).
 		Msg("Starting bot in WEBHOOK mode")
 
-	// 1. Set the webhook
 	webhookURL := fmt.Sprintf("%s/webhook/%s", s.cfg.Webhook.URL, s.api.Token)
 	s.log.Info().Str("url", webhookURL).Msg("Setting webhook...")
 
@@ -139,7 +128,6 @@ func (s *BotServer) startWebhook(ctx context.Context) error {
 		return err
 	}
 
-	// 2. Add GetWebhookInfo check
 	info, err := s.api.GetWebhookInfo()
 	if err != nil {
 		s.log.Error().Err(err).Msg("Failed to get webhook info")
@@ -153,13 +141,8 @@ func (s *BotServer) startWebhook(ctx context.Context) error {
 		s.log.Info().Msg("Webhook set successfully, no last error")
 	}
 
-	// 3. Get the update channel from the bot library
-	// This sets up the http.DefaultServeMux
 	updates := s.api.ListenForWebhook("/webhook/" + s.api.Token)
 
-	// 4. Start the HTTP server in a goroutine
-	// We use ListenAndServe, not ListenAndServeTLS,
-	// assuming a reverse proxy (Nginx, Caddy) is handling SSL.
 	listenAddr := fmt.Sprintf("127.0.0.1:%d", s.cfg.Webhook.ListenPort)
 	s.log.Info().Str("addr", listenAddr).Msg("Starting HTTP server for webhook")
 
@@ -170,7 +153,6 @@ func (s *BotServer) startWebhook(ctx context.Context) error {
 		}
 	}()
 
-	// 5. Start the worker pool (identical to polling)
 	jobs := make(chan tgbotapi.Update, 100)
 	var wg sync.WaitGroup
 	for w := 1; w <= s.cfg.Polling.WorkerPoolSize; w++ {
@@ -195,24 +177,21 @@ func (s *BotServer) startWebhook(ctx context.Context) error {
 		}(w)
 	}
 
-	// 6. Main loop: Listen for updates and dispatch jobs
 	s.log.Info().Msg("Webhook update listener started")
 	for {
 		select {
-		case <-ctx.Done(): // Shutdown signal received
-			close(jobs) // Close the jobs channel
+		case <-ctx.Done():
+			close(jobs)
 
-			// Shut down the HTTP server
 			s.log.Info().Msg("Shutting down HTTP server...")
 			if err := httpServer.Shutdown(context.Background()); err != nil {
 				s.log.Error().Err(err).Msg("HTTP server shutdown error")
 			}
 
-			wg.Wait() // Wait for workers
+			wg.Wait()
 			s.log.Info().Msg("Webhook server stopped gracefully")
 			return nil
 		case update := <-updates:
-			// Send the update to the worker pool
 			jobs <- update
 		}
 	}

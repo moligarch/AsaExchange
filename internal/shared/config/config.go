@@ -20,16 +20,34 @@ type WebhookConfig struct {
 	URL        string `mapstructure:"url"`
 }
 
-type BotConfig struct {
-	Token     string        `mapstructure:"token"`
-	ModToken  string        `mapstructure:"mod_token"`
-	ChannelID int64         `mapstructure:"channel_id"`
-	Mode      string        `mapstructure:"mode"`
-	Polling   PollingConfig `mapstructure:"polling"`
-	Webhook   WebhookConfig `mapstructure:"webhook"`
+type BotConnectionConfig struct {
+	Mode    string        `mapstructure:"mode"`
+	Polling PollingConfig `mapstructure:"polling"`
+	Webhook WebhookConfig `mapstructure:"webhook"`
 }
 
-// NEW struct for postgres config
+type CountryConfig struct {
+	Title    string `mapstructure:"title"`
+	Strategy string `mapstructure:"strategy"`
+}
+
+type CustomerBotConfig struct {
+	Token             string                   `mapstructure:"token"`
+	Connection        BotConnectionConfig      `mapstructure:"connection"`
+	CountryStrategies map[string]CountryConfig `mapstructure:"country_strategies"`
+}
+
+type ModeratorBotConfig struct {
+	Token      string              `mapstructure:"token"`
+	ChannelID  int64               `mapstructure:"channel_id"`
+	Connection BotConnectionConfig `mapstructure:"connection"`
+}
+
+type BotConfig struct {
+	Customer  CustomerBotConfig  `mapstructure:"customer"`
+	Moderator ModeratorBotConfig `mapstructure:"moderator"`
+}
+
 type PostgresConfig struct {
 	User     string `mapstructure:"user"`
 	Password string `mapstructure:"password"`
@@ -44,7 +62,7 @@ type Config struct {
 	Bot           BotConfig      `mapstructure:"bot"`
 }
 
-// findProjectRoot (UNCHANGED)
+// findProjectRoot
 func findProjectRoot() (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -93,9 +111,10 @@ func Load() (*Config, error) {
 
 	// 4. Set defaults (for any keys missing from the yaml)
 	v.SetDefault("app_env", "development")
-	v.SetDefault("bot.mode", "polling")
-	v.SetDefault("bot.polling.worker_pool_size", 5)
-	v.SetDefault("bot.webhook.listen_port", 8443)
+	v.SetDefault("bot.customer.connection.mode", "polling")
+	v.SetDefault("bot.customer.connection.polling.worker_pool_size", 5)
+	v.SetDefault("bot.moderator.connection.mode", "polling")
+	v.SetDefault("bot.moderator.connection.polling.worker_pool_size", 1)
 
 	// 5. Unmarshal the config
 	var cfg Config
@@ -113,17 +132,20 @@ func Load() (*Config, error) {
 	if cfg.Postgres.URL == "" {
 		return nil, errors.New("postgres.url is not set in config.yaml")
 	}
-	if cfg.Bot.Token == "" {
-		return nil, errors.New("bot.token is not set in config.yaml")
+	if cfg.Bot.Customer.Token == "" {
+		return nil, errors.New("bot.customer.token is not set in config.yaml")
 	}
-	if cfg.Bot.Mode != "polling" && cfg.Bot.Mode != "webhook" {
+	if cfg.Bot.Moderator.Token == "" {
+		return nil, errors.New("bot.moderator.token is not set in config.yaml")
+	}
+	if cfg.Bot.Customer.Connection.Mode != "polling" && cfg.Bot.Customer.Connection.Mode != "webhook" {
 		return nil, errors.New("bot.mode must be 'polling' or 'webhook' in config.yaml")
 	}
-	if cfg.Bot.Mode == "webhook" && cfg.Bot.Webhook.URL == "" {
-		return nil, errors.New("bot.webhook.url is not set in config.yaml")
+	if cfg.Bot.Moderator.Connection.Mode != "polling" && cfg.Bot.Moderator.Connection.Mode != "webhook" {
+		return nil, errors.New("bot.mode must be 'polling' or 'webhook' in config.yaml")
 	}
-	if cfg.Bot.Polling.WorkerPoolSize <= 0 {
-		return nil, errors.New("bot.polling.worker_pool_size must be > 0")
+	if len(cfg.Bot.Customer.CountryStrategies) == 0 {
+		return nil, errors.New("bot.country_strategies is not defined in config.yaml")
 	}
 
 	return &cfg, nil
