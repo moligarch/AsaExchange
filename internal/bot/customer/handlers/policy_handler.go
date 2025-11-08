@@ -82,20 +82,20 @@ func (h *policyHandler) Handle(ctx context.Context, update *ports.BotUpdate, use
 			Text:      "You have accepted the terms of service.",
 		})
 
-		return h.bot.SendMessage(ctx, msg)
+		_, err := h.bot.SendMessage(ctx, msg)
+		return err
 	case "policy_decline":
 		log.Info().Msg("User declined policy. Resetting registration.")
 
-		// 1. Reset user for re-registration (as you requested)
+		// 1. Reset user for re-registration
 		user.State = domain.StateAwaitingFirstName
 		user.FirstName = nil
 		user.LastName = nil
 		user.PhoneNumber = nil
 		user.GovernmentID = nil
-		user.GovernmentIDPhotoID = nil
+		user.IdentityDocRef = nil
 		user.LocationCountry = nil
 		user.VerificationStrategy = nil
-		// user.VerificationStatus remains 'pending'
 
 		if err := h.userRepo.Update(ctx, user); err != nil {
 			log.Error().Err(err).Msg("Failed to reset user state after policy decline")
@@ -114,7 +114,8 @@ func (h *policyHandler) Handle(ctx context.Context, update *ports.BotUpdate, use
 			Text:      "You have declined the terms of service.",
 		})
 
-		return h.bot.SendMessage(ctx, msg)
+		_, err := h.bot.SendMessage(ctx, msg)
+		return err
 	}
 	return nil
 }
@@ -124,5 +125,6 @@ func (h *policyHandler) sendErrorMessage(ctx context.Context, chatID int64, mess
 	msgParams := messages.NewBuilder(chatID).
 		WithText(message).
 		WithParseMode("").Build()
-	return h.bot.SendMessage(ctx, msgParams)
+	_, err := h.bot.SendMessage(ctx, msgParams)
+	return err
 }

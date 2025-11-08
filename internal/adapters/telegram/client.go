@@ -3,10 +3,13 @@ package telegram
 import (
 	"AsaExchange/internal/core/ports"
 	"context"
+	"fmt"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/rs/zerolog"
 )
+
+var _ ports.BotClientPort = (*tgClient)(nil) // Ensure compliance
 
 // tgClient implements the BotClientPort.
 type tgClient struct {
@@ -21,7 +24,7 @@ func NewClient(api *tgbotapi.BotAPI, baseLogger *zerolog.Logger) ports.BotClient
 }
 
 // SendMessage translates our params into a tgbotapi message.
-func (c *tgClient) SendMessage(ctx context.Context, params ports.SendMessageParams) error {
+func (c *tgClient) SendMessage(ctx context.Context, params ports.SendMessageParams) (messageID int, err error) {
 	// We use tgbotapi.Chattable so we can set ReplyMarkup
 	msg := tgbotapi.NewMessage(params.ChatID, params.Text)
 	msg.ParseMode = params.ParseMode
@@ -37,11 +40,12 @@ func (c *tgClient) SendMessage(ctx context.Context, params ports.SendMessagePara
 		}
 	}
 
-	if _, err := c.api.Send(msg); err != nil {
+	sentMessage, err := c.api.Send(msg)
+	if err != nil {
 		c.log.Error().Err(err).Int64("chat_id", params.ChatID).Msg("Failed to send message")
-		return err
+		return 0, err
 	}
-	return nil
+	return sentMessage.MessageID, nil
 }
 
 // buildInlineKeyboard is a helper to create the inline keyboard.
@@ -132,6 +136,30 @@ func (c *tgClient) EditMessageText(ctx context.Context, params ports.EditMessage
 	return nil
 }
 
+// EditMessageCaption edits the caption of an existing media message.
+func (c *tgClient) EditMessageCaption(ctx context.Context, params ports.EditMessageCaptionParams) error {
+	msg := tgbotapi.NewEditMessageCaption(
+		params.ChatID,
+		params.MessageID,
+		params.Caption,
+	)
+	msg.ParseMode = params.ParseMode
+
+	if params.ReplyMarkup != nil && params.ReplyMarkup.IsInline {
+		inlineMarkup := c.buildInlineKeyboard(params.ReplyMarkup.Buttons)
+		msg.ReplyMarkup = &inlineMarkup
+	}
+
+	if _, err := c.api.Send(msg); err != nil {
+		c.log.Error().Err(err).
+			Int64("chat_id", params.ChatID).
+			Int("message_id", params.MessageID).
+			Msg("Failed to edit message caption")
+		return err
+	}
+	return nil
+}
+
 // AnswerCallbackQuery sends a response to a callback query (stops the spinner)
 func (c *tgClient) AnswerCallbackQuery(ctx context.Context, params ports.AnswerCallbackParams) error {
 	callbackConfig := tgbotapi.NewCallback(params.CallbackQueryID, params.Text)
@@ -144,4 +172,33 @@ func (c *tgClient) AnswerCallbackQuery(ctx context.Context, params ports.AnswerC
 		return err
 	}
 	return nil
+}
+
+// SendPhoto sends a photo with a caption and optional keyboard
+func (c *tgClient) SendPhoto(ctx context.Context, params ports.SendPhotoParams) (messageID int, err error) {
+	var file tgbotapi.RequestFileData
+	if filePath, ok := params.File.(string); ok {
+		file = tgbotapi.FilePath(filePath)
+	} else if fileID, ok := params.File.(tgbotapi.FileID); ok {
+		file = fileID
+	} else {
+		return 0, fmt.Errorf("invalid file type for SendPhoto: %T", params.File)
+	}
+
+	photoConfig := tgbotapi.NewPhoto(params.ChatID, file)
+	photoConfig.Caption = params.Caption
+	photoConfig.ParseMode = params.ParseMode
+
+	if params.ReplyMarkup != nil && params.ReplyMarkup.IsInline {
+		photoConfig.ReplyMarkup = c.buildInlineKeyboard(params.ReplyMarkup.Buttons)
+	}
+
+	sentMessage, err := c.api.Send(photoConfig)
+	if err != nil {
+		c.log.Error().Err(err).
+			Int64("chat_id", params.ChatID).
+			Msg("Failed to send photo")
+		return 0, err
+	}
+	return sentMessage.MessageID, nil
 }
