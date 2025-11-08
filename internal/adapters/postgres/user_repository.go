@@ -60,7 +60,7 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 		INSERT INTO users (
 			id, telegram_id, first_name, last_name, phone_number,
 			government_id, location_country, verification_status, user_state, 
-			verification_strategy, government_id_photo_id, is_moderator
+			verification_strategy, identity_doc_ref, is_moderator
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 	_, err = r.db.pool.Exec(ctx, query,
@@ -74,7 +74,7 @@ func (r *userRepository) Create(ctx context.Context, user *domain.User) error {
 		user.VerificationStatus,
 		user.State,
 		user.VerificationStrategy,
-		user.GovernmentIDPhotoID, 
+		user.IdentityDocRef,
 		user.IsModerator,
 	)
 
@@ -101,7 +101,7 @@ func (r *userRepository) scanUser(row pgx.Row) (*domain.User, error) {
 		&user.VerificationStatus,
 		&user.State,
 		&user.VerificationStrategy,
-		&user.GovernmentIDPhotoID, 
+		&user.IdentityDocRef,
 		&user.IsModerator,
 		&user.CreatedAt,
 		&user.UpdatedAt,
@@ -156,7 +156,7 @@ func (r *userRepository) scanUser(row pgx.Row) (*domain.User, error) {
 const userQueryCols = `
 	id, telegram_id, first_name, last_name, phone_number,
 	government_id, location_country, verification_status, user_state, 
-	verification_strategy, government_id_photo_id, is_moderator,
+	verification_strategy, identity_doc_ref, is_moderator,
 	created_at, updated_at
 `
 
@@ -229,7 +229,7 @@ func (r *userRepository) Update(ctx context.Context, user *domain.User) error {
 			user_state = $7,
 			is_moderator = $8,
 			verification_strategy = $9,
-			government_id_photo_id = $10,
+			identity_doc_ref = $10,
 			updated_at = NOW()
 		WHERE id = $11
 	`
@@ -243,7 +243,7 @@ func (r *userRepository) Update(ctx context.Context, user *domain.User) error {
 		user.State,
 		user.IsModerator,
 		user.VerificationStrategy,
-		user.GovernmentIDPhotoID,
+		user.IdentityDocRef,
 		user.ID, // The WHERE clause
 	)
 
@@ -276,4 +276,23 @@ func (r *userRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 
 	return nil
+}
+
+// GetNextPendingUser finds the oldest user in 'pending' status
+func (r *userRepository) GetNextPendingUser(ctx context.Context) (*domain.User, error) {
+	query := `SELECT ` + userQueryCols + ` FROM users 
+		WHERE verification_status = $1
+		ORDER BY created_at ASC
+		LIMIT 1
+	`
+
+	row := r.db.pool.QueryRow(ctx, query, domain.VerificationPending)
+	user, err := r.scanUser(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil // No pending users, not an error
+		}
+		return nil, err
+	}
+	return user, nil
 }

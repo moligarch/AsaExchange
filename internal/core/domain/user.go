@@ -41,7 +41,7 @@ type User struct {
 	VerificationStatus   UserVerificationStatus
 	State                UserState
 	VerificationStrategy *string // Nullable
-	GovernmentIDPhotoID  *string // Nullable, Telegram FileID
+	IdentityDocRef       *string // Nullable
 	IsModerator          bool
 	CreatedAt            time.Time
 	UpdatedAt            time.Time

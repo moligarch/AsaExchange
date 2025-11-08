@@ -20,7 +20,7 @@ func TestUserRepository_Create_GetByTelegramID_Roundtrip(t *testing.T) {
 	govID := "ABC-123"
 	firstName := "Test"
 	strategy := "manual"
-	photoID := "file_id_abc"
+	docRef := "message_id_123"
 
 	user := &domain.User{
 		ID:                   uuid.New(),
@@ -34,7 +34,7 @@ func TestUserRepository_Create_GetByTelegramID_Roundtrip(t *testing.T) {
 		State:                domain.StateAwaitingLastName,
 		IsModerator:          false,
 		VerificationStrategy: &strategy,
-		GovernmentIDPhotoID:  &photoID,
+		IdentityDocRef:       &docRef,
 	}
 
 	// 2. Run Create
@@ -72,8 +72,8 @@ func TestUserRepository_Create_GetByTelegramID_Roundtrip(t *testing.T) {
 	if *foundUser.VerificationStrategy != *user.VerificationStrategy {
 		t.Errorf("VerificationStrategy mismatch: got %s, want %s", *foundUser.VerificationStrategy, *user.VerificationStrategy)
 	}
-	if *foundUser.GovernmentIDPhotoID != *user.GovernmentIDPhotoID {
-		t.Errorf("GovernmentIDPhotoID mismatch: got %s, want %s", *foundUser.GovernmentIDPhotoID, *user.GovernmentIDPhotoID)
+	if *foundUser.IdentityDocRef != *user.IdentityDocRef {
+		t.Errorf("IdentityDocRef mismatch: got %s, want %s", *foundUser.IdentityDocRef, *user.IdentityDocRef)
 	}
 	t.Logf("Successfully created and retrieved user %s", user.ID)
 }
@@ -104,15 +104,15 @@ func TestUserRepository_Update(t *testing.T) {
 	defer cleanup()
 
 	// 2. Modify the user struct
-	newFirstName := "Moein"
-	newLastName := "Verkiani"
+	newFirstName := "Test2"
+	newLastName := "Testian"
 	newState := domain.StateAwaitingLastName
-	newPhotoID := "file_id_xyz"
+	newDocRef := "message_id_xyz"
 
 	user.FirstName = &newFirstName
 	user.LastName = &newLastName
 	user.State = newState
-	user.GovernmentIDPhotoID = &newPhotoID
+	user.IdentityDocRef = &newDocRef
 
 	// 3. Run Update
 	err := repo.Update(ctx, user)
@@ -132,8 +132,8 @@ func TestUserRepository_Update(t *testing.T) {
 	if *updatedUser.LastName != newLastName {
 		t.Errorf("LastName was not updated: got %s, want %s", *updatedUser.LastName, newLastName)
 	}
-	if *updatedUser.GovernmentIDPhotoID != newPhotoID {
-		t.Errorf("GovernmentIDPhotoID was not updated: got %s, want %s", *updatedUser.GovernmentIDPhotoID, newPhotoID)
+	if *updatedUser.IdentityDocRef != newDocRef {
+		t.Errorf("IdentityDocRef was not updated: got %s, want %s", *updatedUser.IdentityDocRef, newDocRef)
 	}
 	if updatedUser.State != newState {
 		t.Errorf("State was not updated: got %s, want %s", updatedUser.State, newState)
