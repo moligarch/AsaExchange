@@ -1,12 +1,10 @@
 package main
 
 import (
+	"AsaExchange/internal/adapters/eventbus"
 	"AsaExchange/internal/adapters/postgres"
 	"AsaExchange/internal/adapters/security"
 	"AsaExchange/internal/adapters/telegram"
-	_ "AsaExchange/internal/bot/customer/handlers"
-
-	// _ "AsaExchange/internal/bot/moderator/handlers"
 	"AsaExchange/internal/shared/config"
 	"AsaExchange/internal/shared/logger"
 	"context"
@@ -15,6 +13,10 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	// --- BLANK IMPORTS TO TRIGGER HANDLER REGISTRATION ---
+	_ "AsaExchange/internal/bot/customer/handlers"
+	_ "AsaExchange/internal/bot/moderator/handlers"
 )
 
 func main() {
@@ -32,7 +34,6 @@ func main() {
 	baseLogger.Info().Interface("config", cfg).Msg("Configuration loaded")
 
 	// 3. Initialize Services & Context
-	// Create a context that listens for OS shutdown signals
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -55,14 +56,19 @@ func main() {
 	userRepo := postgres.NewUserRepository(db, secSvc, &baseLogger)
 	_ = postgres.NewUserBankAccountRepository(db, secSvc, &baseLogger)
 
-	// 5. Initialize Bot Orchestrator
+	// Create the EventBus first
+	bus := eventbus.NewInMemoryEventBus(&baseLogger)
+
+	// 6. Initialize Bot Orchestrator
+	// Pass the bus to the constructor
 	orchestrator := telegram.NewOrchestrator(
 		cfg,
 		userRepo,
+		bus,
 		&baseLogger,
 	)
 
-	// 6. Start Bot Orchestrator
+	// 7. Start Bot Orchestrator
 	baseLogger.Info().Msg("Application starting...")
 	if err := orchestrator.Start(ctx); err != nil {
 		baseLogger.Error().Err(err).Msg("Bot orchestrator failed")
