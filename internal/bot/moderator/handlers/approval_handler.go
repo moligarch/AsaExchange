@@ -101,7 +101,7 @@ func (h *approvalHandler) Handle(ctx context.Context, update *ports.BotUpdate, a
 		}
 
 		// Edit the admin's message
-		return h.editMessage(ctx, update, fmt.Sprintf("✅ User Approved: %s %s", *user.FirstName, *user.LastName))
+		return h.editMessage(ctx, update, fmt.Sprintf("✅ User Approved: %s %s\nAdmin: %d", *user.FirstName, *user.LastName, adminUser.TelegramID))
 
 	case "reject":
 		// As per your request: reset them for re-registration
@@ -128,13 +128,13 @@ func (h *approvalHandler) Handle(ctx context.Context, update *ports.BotUpdate, a
 		}
 
 		// Edit the admin's message
-		return h.editMessage(ctx, update, "❌ User Rejected")
+		return h.editMessage(ctx, update, fmt.Sprintf("❌ User Rejected: %s %s\nAdmin: %d", *user.FirstName, *user.LastName, adminUser.TelegramID))
 	}
 
 	return nil
 }
 
-// editMessage (UNCHANGED)
+// editMessage
 func (h *approvalHandler) editMessage(ctx context.Context, update *ports.BotUpdate, text string) error {
 	msg := ports.EditMessageCaptionParams{
 		ChatID:      update.ChatID,
