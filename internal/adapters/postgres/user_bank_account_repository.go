@@ -12,6 +12,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
+var _ ports.UserBankAccountRepository = (*userBankAccountRepository)(nil)  // Ensure compliance
+
 type userBankAccountRepository struct {
 	db     *DB
 	secSvc ports.SecurityPort
