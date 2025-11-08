@@ -12,6 +12,8 @@ import (
 	"github.com/rs/zerolog" // Import logger
 )
 
+var _ ports.SecurityPort = (*aesService)(nil) // Ensure compliance
+
 // aesService implements the SecurityPort interface using AES-GCM.
 type aesService struct {
 	gcm cipher.AEAD

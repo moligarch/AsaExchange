@@ -28,6 +28,7 @@ type MessageHandlerConstructor func(
 	cfg *config.Config,
 	userRepo ports.UserRepository,
 	botClient ports.BotClientPort,
+	queue ports.VerificationQueue,
 	baseLogger *zerolog.Logger,
 ) ports.MessageHandler
 
@@ -61,6 +62,7 @@ func RegisterAllHandlers(
 	router *CustomerRouter,
 	userRepo ports.UserRepository,
 	botClient ports.BotClientPort,
+	queue ports.VerificationQueue,
 	baseLogger *zerolog.Logger,
 ) {
 	log := baseLogger.With().Str("component", "customer_registry").Logger()
@@ -80,7 +82,7 @@ func RegisterAllHandlers(
 	// Register the single message handler
 	if messageHandler != nil {
 		// Pass cfg to the constructor
-		handler := messageHandler(cfg, userRepo, botClient, baseLogger)
+		handler := messageHandler(cfg, userRepo, botClient, queue, baseLogger)
 		router.SetMessageHandler(handler)
 		log.Info().Msg("Registered main message handler")
 	}

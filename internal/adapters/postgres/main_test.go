@@ -66,8 +66,8 @@ func createTestUser(t *testing.T, repo ports.UserRepository) (*domain.User, func
 		TelegramID:           time.Now().UnixNano(),
 		FirstName:            func(s string) *string { return &s }("Test"),
 		LastName:             func(s string) *string { return &s }("User"),
-		VerificationStatus:   domain.VerificationPending,
 		State:                domain.StateAwaitingFirstName,
+		VerificationStatus:   domain.VerificationPending,
 		VerificationStrategy: &strategy,
 	}
 	ctx := t.Context()

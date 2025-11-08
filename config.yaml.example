@@ -13,10 +13,13 @@ postgres:
 
 # Bot configuration
 bot:
+  # Private Channel: CustomerBot sends photos here
+  private_upload_channel_id: 1234567890
+
   customer:
-    token: "customer-bot-token"
+    token: "customer bot token"
     connection:
-      mode: "pooling"
+      mode: "polling"
       webhook:
         url: "https://your.domain.com"
         listen_port: 8443
@@ -25,7 +28,7 @@ bot:
     country_strategies:
       IRN:
         title: "🇮🇷 Iran"
-        strategy: "dolate_man" # Future
+        strategy: "dolate_man"
       DEU:
         title: "🇩🇪 Germany"
         strategy: "manual"
@@ -35,14 +38,17 @@ bot:
       ITA:
         title: "🇮🇹 Italy"
         strategy: "manual"
-		
+        
   moderator:
-    token: "moderator-bot-token"
+    token: "Moderator bot token"
+    # The public channel where exchange requests are posted
+    public_channel_id: 0
+    # Private Channel: ModeratorBot posts reviews for admins here
+    admin_review_channel_id: 1234567890
     connection:
-      mode: "pooling"
+      mode: "polling"
       webhook:
-        url: "https://your.domain.com"
-        listen_port: 8443
+        url: "https://your.domain.com/mod" # Different URL
+        listen_port: 8444 # Different port
       polling:
         worker_pool_size: 1
-    channel_id: 0

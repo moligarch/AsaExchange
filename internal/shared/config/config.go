@@ -38,14 +38,16 @@ type CustomerBotConfig struct {
 }
 
 type ModeratorBotConfig struct {
-	Token      string              `mapstructure:"token"`
-	ChannelID  int64               `mapstructure:"channel_id"`
-	Connection BotConnectionConfig `mapstructure:"connection"`
+	Token                string              `mapstructure:"token"`
+	Connection           BotConnectionConfig `mapstructure:"connection"`
+	PublicChannelID      int64               `mapstructure:"public_channel_id"`
+	AdminReviewChannelID int64               `mapstructure:"admin_review_channel_id"`
 }
 
 type BotConfig struct {
-	Customer  CustomerBotConfig  `mapstructure:"customer"`
-	Moderator ModeratorBotConfig `mapstructure:"moderator"`
+	PrivateUploadChannelID int64              `mapstructure:"private_upload_channel_id"`
+	Customer               CustomerBotConfig  `mapstructure:"customer"`
+	Moderator              ModeratorBotConfig `mapstructure:"moderator"`
 }
 
 type PostgresConfig struct {
@@ -132,6 +134,9 @@ func Load() (*Config, error) {
 	if cfg.Postgres.URL == "" {
 		return nil, errors.New("postgres.url is not set in config.yaml")
 	}
+	if cfg.Bot.PrivateUploadChannelID == 0 {
+		return nil, errors.New("bot.private_upload_channel_id is not set in config.yaml")
+	}
 	if cfg.Bot.Customer.Token == "" {
 		return nil, errors.New("bot.customer.token is not set in config.yaml")
 	}
@@ -146,6 +151,9 @@ func Load() (*Config, error) {
 	}
 	if len(cfg.Bot.Customer.CountryStrategies) == 0 {
 		return nil, errors.New("bot.country_strategies is not defined in config.yaml")
+	}
+	if cfg.Bot.Moderator.AdminReviewChannelID == 0 {
+		return nil, errors.New("bot.moderator.admin_review_channel_id is not set in config.yaml")
 	}
 
 	return &cfg, nil

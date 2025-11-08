@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/rs/zerolog"
 )
@@ -25,6 +26,7 @@ type registrationHandler struct {
 	userRepo          ports.UserRepository
 	bot               ports.BotClientPort
 	countryStrategies map[string]config.CountryConfig
+	queue             ports.VerificationQueue
 }
 
 // NewRegistrationHandler
@@ -32,6 +34,7 @@ func NewRegistrationHandler(
 	cfg *config.Config,
 	userRepo ports.UserRepository,
 	bot ports.BotClientPort,
+	queue ports.VerificationQueue,
 	baseLogger *zerolog.Logger,
 ) ports.MessageHandler {
 	return &registrationHandler{
@@ -39,6 +42,7 @@ func NewRegistrationHandler(
 		userRepo:          userRepo,
 		bot:               bot,
 		countryStrategies: cfg.Bot.Customer.CountryStrategies,
+		queue:             queue,
 	}
 }
 
@@ -64,7 +68,6 @@ func (h *registrationHandler) Handle(ctx context.Context, update *ports.BotUpdat
 		return h.handlePolicyApproval(ctx, update, user)
 
 	default:
-		// User is in a state we don't handle (e.g., "none")
 		h.log.Warn().Str("state", string(user.State)).Msg("Received text in unhandled state")
 		// Optionally send a "I don't understand" message
 		return nil
@@ -77,9 +80,10 @@ func (h *registrationHandler) handleFirstName(ctx context.Context, update *ports
 
 	if update.Contact != nil {
 		msg := messages.NewBuilder(update.ChatID).
-		WithText("Please reply with your First Name as text.").
-		WithParseMode("").Build()
-		return h.bot.SendMessage(ctx, msg)
+			WithText("Please reply with your First Name as text.").
+			WithParseMode("").Build()
+		_, err := h.bot.SendMessage(ctx, msg)
+		return err
 	}
 
 	firstName := update.Text
@@ -89,7 +93,8 @@ func (h *registrationHandler) handleFirstName(ctx context.Context, update *ports
 		msg := messages.NewBuilder(update.ChatID).
 			WithText("Invalid first name. Please enter a name between 2 and 50 characters.").
 			WithParseMode("").Build()
-		return h.bot.SendMessage(ctx, msg)
+		_, err := h.bot.SendMessage(ctx, msg)
+		return err
 	}
 
 	// 1. Modify the user struct
@@ -108,7 +113,8 @@ func (h *registrationHandler) handleFirstName(ctx context.Context, update *ports
 		WithText("Thank you\\. Now, please reply with your *legal Last Name*\\.").
 		Build()
 
-	return h.bot.SendMessage(ctx, msg)
+	_, err := h.bot.SendMessage(ctx, msg)
+	return err
 }
 
 // handleLastName processes the user's last name submission.
@@ -120,7 +126,8 @@ func (h *registrationHandler) handleLastName(ctx context.Context, update *ports.
 			WithText("Please reply with your Last Name as text.").
 			WithParseMode("").
 			Build()
-		return h.bot.SendMessage(ctx, msg)
+		_, err := h.bot.SendMessage(ctx, msg)
+		return err
 	}
 
 	lastName := update.Text
@@ -131,7 +138,8 @@ func (h *registrationHandler) handleLastName(ctx context.Context, update *ports.
 			WithText("Invalid last name. Please enter a name between 2 and 50 characters.").
 			WithParseMode("").
 			Build()
-		return h.bot.SendMessage(ctx, msg)
+		_, err := h.bot.SendMessage(ctx, msg)
+		return err
 	}
 
 	// 1. Modify the user struct
@@ -151,7 +159,8 @@ func (h *registrationHandler) handleLastName(ctx context.Context, update *ports.
 		WithContactButton("Share My Phone Number").
 		Build()
 
-	return h.bot.SendMessage(ctx, msg)
+	_, err := h.bot.SendMessage(ctx, msg)
+	return err
 }
 
 func (h *registrationHandler) handlePhoneNumber(ctx context.Context, update *ports.BotUpdate, user *domain.User) error {
@@ -162,7 +171,8 @@ func (h *registrationHandler) handlePhoneNumber(ctx context.Context, update *por
 			WithText("Please press the *Share My Phone Number* button to continue\\.").
 			WithContactButton("Share My Phone Number"). // Re-send the button
 			Build()
-		return h.bot.SendMessage(ctx, msg)
+		_, err := h.bot.SendMessage(ctx, msg)
+		return err
 	}
 
 	if update.Contact.UserID != update.UserID {
@@ -171,7 +181,8 @@ func (h *registrationHandler) handlePhoneNumber(ctx context.Context, update *por
 			WithText("You must share your *own* contact\\. Please press the button again\\.").
 			WithContactButton("Share My Phone Number"). // Re-send the button
 			Build()
-		return h.bot.SendMessage(ctx, msg)
+		_, err := h.bot.SendMessage(ctx, msg)
+		return err
 	}
 
 	phoneNumber := update.Contact.PhoneNumber
@@ -182,7 +193,8 @@ func (h *registrationHandler) handlePhoneNumber(ctx context.Context, update *por
 			WithRemoveKeyboard().
 			WithParseMode("").
 			Build()
-		return h.bot.SendMessage(ctx, msg)
+		_, err := h.bot.SendMessage(ctx, msg)
+		return err
 	}
 
 	user.PhoneNumber = &phoneNumber
@@ -200,7 +212,8 @@ func (h *registrationHandler) handlePhoneNumber(ctx context.Context, update *por
 		WithRemoveKeyboard().
 		Build()
 
-	return h.bot.SendMessage(ctx, msg)
+	_, err := h.bot.SendMessage(ctx, msg)
+	return err
 }
 
 // handleGovID processes the user's government ID submission.
@@ -218,7 +231,8 @@ func (h *registrationHandler) handleGovID(ctx context.Context, update *ports.Bot
 		msg := messages.NewBuilder(update.ChatID).
 			WithText("Invalid ID format\\. Please reply with your *Government ID / National ID Number*\\.").
 			Build()
-		return h.bot.SendMessage(ctx, msg)
+		_, err := h.bot.SendMessage(ctx, msg)
+		return err
 	}
 
 	// 1. Modify the user struct
@@ -246,7 +260,8 @@ func (h *registrationHandler) handleGovID(ctx context.Context, update *ports.Bot
 		WithReplyButtons(countryButtons, 2). // Build a 2-column grid
 		Build()
 
-	return h.bot.SendMessage(ctx, msg)
+	_, err := h.bot.SendMessage(ctx, msg)
+	return err
 }
 
 // handleLocation processes the user's country selection.
@@ -286,7 +301,8 @@ func (h *registrationHandler) handleLocation(ctx context.Context, update *ports.
 			)).
 			WithReplyButtons(countryButtons, 2).
 			Build()
-		return h.bot.SendMessage(ctx, msg)
+		_, err := h.bot.SendMessage(ctx, msg)
+		return err
 	}
 
 	// 2. Update the user
@@ -308,34 +324,71 @@ func (h *registrationHandler) handleLocation(ctx context.Context, update *ports.
 		WithRemoveKeyboard(). // Remove the country buttons
 		Build()
 
-	return h.bot.SendMessage(ctx, msg)
+	_, err := h.bot.SendMessage(ctx, msg)
+	return err
 }
 
 func (h *registrationHandler) handleIdentityDoc(ctx context.Context, update *ports.BotUpdate, user *domain.User) error {
 	log := h.log.With().Str("user_id", user.ID.String()).Logger()
 
-	// 1. Validate that it's a photo
 	if update.Photo == nil {
 		msg := messages.NewBuilder(update.ChatID).
-			WithText("Please upload a *photo* of your ID, not text\\.").
+			WithText("Please upload a *photo* of your ID, not text.").
 			Build()
-		return h.bot.SendMessage(ctx, msg)
+		_, err := h.bot.SendMessage(ctx, msg)
+		return err
 	}
 
-	// 2. Get the FileID
 	fileID := update.Photo.FileID
+	log.Info().Str("file_id", fileID).Msg("Received photo ID. Publishing to verification queue...")
 
-	// 3. Update the user
-	user.GovernmentIDPhotoID = &fileID
-	user.State = domain.StateAwaitingPolicyApproval // <-- Set to next state
+	// 2. Build the caption for the private channel
+	var caption strings.Builder
+	caption.WriteString("New User Verification\n")
+	caption.WriteString(fmt.Sprintf("UserID: %s\n", user.ID.String()))
+	if user.FirstName != nil {
+		caption.WriteString(fmt.Sprintf("First Name: %s\n", *user.FirstName))
+	}
+	if user.LastName != nil {
+		caption.WriteString(fmt.Sprintf("Last Name: %s\n", *user.LastName))
+	}
+	if user.PhoneNumber != nil {
+		caption.WriteString(fmt.Sprintf("Phone: %s\n", *user.PhoneNumber))
+	}
+	if user.GovernmentID != nil {
+		caption.WriteString(fmt.Sprintf("Gov ID: %s\n", *user.GovernmentID))
+	}
+	if user.LocationCountry != nil {
+		caption.WriteString(fmt.Sprintf("Country: %s\n", *user.LocationCountry))
+	}
+	if user.VerificationStrategy != nil {
+		caption.WriteString(fmt.Sprintf("Strategy: %s\n", *user.VerificationStrategy))
+	}
 
-	log.Info().Str("file_id", fileID).Msg("Updating user's photo ID and moving to policy approval")
+	// 3. Publish to the queue
+	event := ports.NewVerificationEvent{
+		UserID:  user.ID,
+		FileID:  fileID,
+		Caption: caption.String(),
+	}
+
+	storageRef, err := h.queue.Publish(ctx, event)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to publish to verification queue")
+		return h.sendErrorMessage(ctx, update.ChatID, "An error occurred while submitting your ID.")
+	}
+
+	// 4. Update the user
+	user.IdentityDocRef = &storageRef // Save MessageID as string
+	user.State = domain.StateAwaitingPolicyApproval
+
+	log.Info().Str("storage_ref", storageRef).Msg("Successfully published to queue. Moving to policy approval.")
 	if err := h.userRepo.Update(ctx, user); err != nil {
-		log.Error().Err(err).Msg("Failed to update user")
+		log.Error().Err(err).Msg("Failed to update user with storage ref")
 		return h.sendErrorMessage(ctx, update.ChatID, "An internal error occurred.")
 	}
 
-	// 4. Send the policy message with inline buttons
+	// 5. Send policy message to user
 	policyText := "Please review our terms of service and privacy policy\\.\n\n[Link to Policy](https://example.com/terms)\n\nDo you accept these terms\\?"
 
 	msg := messages.NewBuilder(update.ChatID).
@@ -348,7 +401,8 @@ func (h *registrationHandler) handleIdentityDoc(ctx context.Context, update *por
 		}).
 		Build()
 
-	return h.bot.SendMessage(ctx, msg)
+	_, err = h.bot.SendMessage(ctx, msg)
+	return err
 }
 
 // handlePolicyApproval handles text replies when user should be pressing buttons.
@@ -369,7 +423,8 @@ func (h *registrationHandler) handlePolicyApproval(ctx context.Context, update *
 		}).
 		Build()
 
-	return h.bot.SendMessage(ctx, msg)
+	_, err := h.bot.SendMessage(ctx, msg)
+	return err
 }
 
 // sendErrorMessage is a helper to send a generic error
@@ -377,5 +432,6 @@ func (h *registrationHandler) sendErrorMessage(ctx context.Context, chatID int64
 	msgParams := messages.NewBuilder(chatID).
 		WithText(message).
 		WithParseMode("").Build()
-	return h.bot.SendMessage(ctx, msgParams)
+	_, err := h.bot.SendMessage(ctx, msgParams)
+	return err
 }

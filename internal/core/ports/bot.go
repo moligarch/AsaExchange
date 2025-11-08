@@ -56,17 +56,37 @@ type AnswerCallbackParams struct {
 	ShowAlert       bool   // Show as a pop-up alert instead of a toast
 }
 
+// SendPhotoParams holds options for sending a photo.
+type SendPhotoParams struct {
+	ChatID      int64
+	File        interface{} // FileID or FilePath
+	Caption     string
+	ParseMode   string
+	ReplyMarkup *ReplyMarkup // For inline keyboards
+}
+
+// EditMessageCaptionParams holds options for editing an existing message's caption.
+type EditMessageCaptionParams struct {
+	ChatID      int64
+	MessageID   int
+	Caption     string
+	ParseMode   string
+	ReplyMarkup *ReplyMarkup // For inline keyboards
+}
+
 // --- Bot Client Port (Outbound) ---
 
 // BotClientPort defines the interface for *sending* messages.
 // This is the "Adapter" our core logic will call.
 type BotClientPort interface {
-	SendMessage(ctx context.Context, params SendMessageParams) error
+	SendMessage(ctx context.Context, params SendMessageParams) (messageID int, err error)
 	SetMenuCommands(ctx context.Context, chatID int64, isAdmin bool) error
 	// EditMessageText allows us to change the text of an existing message.
 	EditMessageText(ctx context.Context, params EditMessageParams) error
+	EditMessageCaption(ctx context.Context, params EditMessageCaptionParams) error
 
 	AnswerCallbackQuery(ctx context.Context, params AnswerCallbackParams) error
+	SendPhoto(ctx context.Context, params SendPhotoParams) (messageID int, err error)
 }
 
 // --- Bot Handler Port (Inbound) ---

@@ -20,4 +20,7 @@ type UserRepository interface {
 
 	Update(ctx context.Context, user *domain.User) error
 	Delete(ctx context.Context, id uuid.UUID) error
+
+	// GetNextPendingUser finds the oldest user in 'pending' status.
+	GetNextPendingUser(ctx context.Context) (*domain.User, error)
 }

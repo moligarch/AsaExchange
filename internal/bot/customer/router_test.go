@@ -19,6 +19,8 @@ type MockUserRepository struct {
 	mock.Mock
 }
 
+var _ ports.UserRepository = (*MockUserRepository)(nil)
+
 func (m *MockUserRepository) Create(ctx context.Context, user *domain.User) error {
 	args := m.Called(ctx, user)
 	return args.Error(0)
@@ -46,6 +48,14 @@ func (m *MockUserRepository) Update(ctx context.Context, user *domain.User) erro
 func (m *MockUserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
+}
+
+func (m *MockUserRepository) GetNextPendingUser(ctx context.Context) (*domain.User, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.User), args.Error(1)
 }
 
 // MockCommandHandler
@@ -81,9 +91,11 @@ type MockBotClient struct {
 	mock.Mock
 }
 
-func (m *MockBotClient) SendMessage(ctx context.Context, params ports.SendMessageParams) error {
+var _ ports.BotClientPort = (*MockBotClient)(nil)
+
+func (m *MockBotClient) SendMessage(ctx context.Context, params ports.SendMessageParams) (int, error) {
 	args := m.Called(ctx, params)
-	return args.Error(0)
+	return args.Int(0), args.Error(1)
 }
 func (m *MockBotClient) SetMenuCommands(ctx context.Context, chatID int64, isAdmin bool) error {
 	args := m.Called(ctx, chatID, isAdmin)
@@ -93,10 +105,19 @@ func (m *MockBotClient) EditMessageText(ctx context.Context, params ports.EditMe
 	args := m.Called(ctx, params)
 	return args.Error(0)
 }
+func (m *MockBotClient) EditMessageCaption(ctx context.Context, params ports.EditMessageCaptionParams) error {
+	args := m.Called(ctx, params)
+	return args.Error(0)
+}
 
 func (m *MockBotClient) AnswerCallbackQuery(ctx context.Context, params ports.AnswerCallbackParams) error {
 	args := m.Called(ctx, params)
 	return args.Error(0)
+}
+
+func (m *MockBotClient) SendPhoto(ctx context.Context, params ports.SendPhotoParams) (int, error) {
+	args := m.Called(ctx, params)
+	return args.Int(0), args.Error(1)
 }
 
 // MockMessageHandler is a mock "plugin" for text
@@ -233,7 +254,7 @@ func TestRouter_HandleUpdate_Text_NewUser(t *testing.T) {
 	// We expect the router to fetch the user and find nil
 	mockUserRepo.On("GetByTelegramID", mock.Anything, int64(789)).Return(nil, nil).Once()
 	// We expect the router to send a "please /start" message
-	mockBotClient.On("SendMessage", mock.Anything, mock.AnythingOfType("ports.SendMessageParams")).Return(nil).Once()
+	mockBotClient.On("SendMessage", mock.Anything, mock.AnythingOfType("ports.SendMessageParams")).Return(0, nil).Once()
 
 	// 4. Run the handler
 	router.HandleUpdate(ctx, fakeUpdate)
@@ -313,7 +334,7 @@ func TestRouter_HandleUpdate_UnhandledText(t *testing.T) {
 	// We expect the router to fetch the user
 	mockUserRepo.On("GetByTelegramID", mock.Anything, int64(789)).Return(nil, nil).Once()
 	// We expect the router to send a "please /start" message
-	mockBotClient.On("SendMessage", mock.Anything, mock.Anything).Return(nil).Once()
+	mockBotClient.On("SendMessage", mock.Anything, mock.Anything).Return(0, nil).Once()
 	// 4. Run the handler
 	router.HandleUpdate(ctx, fakeUpdate)
 
